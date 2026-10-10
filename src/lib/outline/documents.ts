@@ -75,3 +75,69 @@ export async function resolveAttachmentUrl(
   });
   return res.redirected ? res.url : url;
 }
+
+export interface SearchResult {
+  /** Plain-text snippet around the matches, with matches wrapped in <b>…</b>. */
+  context: string;
+  ranking: number;
+  document: Pick<OutlineDocument, "id" | "title" | "icon" | "color" | "collectionId" | "updatedAt">;
+}
+
+/** One page of full-text search results across all documents the user can read. */
+export function searchDocuments(
+  request: Request,
+  query: string,
+  offset: number,
+  limit: number,
+): Promise<SearchResult[]> {
+  return request<SearchResult[]>("documents.search", { query, offset, limit });
+}
+
+export interface SnippetPart {
+  text: string;
+  match: boolean;
+}
+
+const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" };
+
+/**
+ * Turns a search context into a short, single-line snippet centred on the
+ * first match, split into matched and unmatched parts for highlighting.
+ */
+export function snippetParts(context: string, before = 50, after = 140): SnippetPart[] {
+  const flat = context.replace(/\s+/g, " ").trim();
+  const first = flat.indexOf("<b>");
+  const start = Math.max(0, (first === -1 ? 0 : first) - before);
+  // Extend the end to the next closing tag so a match is never cut in half.
+  let end = Math.min(flat.length, start + before + after);
+  const open = flat.lastIndexOf("<b>", end);
+  if (open !== -1 && flat.indexOf("</b>", open) > end) {
+    end = flat.indexOf("</b>", open) + 4;
+  }
+  let text = flat.slice(start, end);
+  // Drop a tag cut in half at either edge.
+  text = text.replace(/^[^<]*?>/, (cut) => (cut.startsWith("b>") || cut.startsWith("/b>") ? "" : cut));
+  text = text.replace(/<\/?b?$/, "");
+
+  const parts: SnippetPart[] = [];
+  const decode = (s: string) => s.replace(/&(amp|lt|gt|quot|#39);/g, (_, e: string) => entities[e]);
+  const regex = /<b>(.*?)<\/b>/g;
+  let last = 0;
+  for (let m = regex.exec(text); m; m = regex.exec(text)) {
+    if (m.index > last) {
+      parts.push({ text: decode(text.slice(last, m.index)), match: false });
+    }
+    parts.push({ text: decode(m[1]), match: true });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) {
+    parts.push({ text: decode(text.slice(last).replace(/<\/?b>/g, "")), match: false });
+  }
+  if (start > 0) {
+    parts.unshift({ text: "…", match: false });
+  }
+  if (end < flat.length) {
+    parts.push({ text: "…", match: false });
+  }
+  return parts;
+}
