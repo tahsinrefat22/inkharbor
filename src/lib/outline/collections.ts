@@ -1,5 +1,5 @@
 /** Calls an Outline API method as the signed-in user (see useAuth().request). */
-export type Request = <T>(method: string, body?: object) => Promise<T>;
+export type Request = <T>(method: string, body?: object, headers?: Record<string, string>) => Promise<T>;
 
 export interface Collection {
   id: string;

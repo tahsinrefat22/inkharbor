@@ -28,12 +28,14 @@ export async function apiRequest<T>(
   token: string,
   method: string,
   body: object = {},
+  headers: Record<string, string> = {},
 ): Promise<T> {
   const res = await fetch(`${normalizeServerUrl(server)}/api/${method}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
+      ...headers,
     },
     body: JSON.stringify(body),
   });

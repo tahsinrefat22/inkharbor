@@ -8,6 +8,8 @@ const light = {
   primary: "#2563eb",
   onPrimary: "#ffffff",
   danger: "#dc2626",
+  codeBackground: "#f3f4f6",
+  codeText: "#1f2937",
 };
 
 const dark: typeof light = {
@@ -18,6 +20,8 @@ const dark: typeof light = {
   primary: "#3b82f6",
   onPrimary: "#ffffff",
   danger: "#f87171",
+  codeBackground: "#1e1e22",
+  codeText: "#e5e7eb",
 };
 
 export type Colors = typeof light;

@@ -37,7 +37,7 @@ interface AuthState {
 
 interface AuthContextValue extends AuthState {
   /** Calls an Outline API method as the signed-in user. */
-  request: <T>(method: string, body?: object) => Promise<T>;
+  request: <T>(method: string, body?: object, headers?: Record<string, string>) => Promise<T>;
   connect: (server: string) => Promise<void>;
   lock: () => Promise<void>;
   unlock: () => Promise<void>;
@@ -123,7 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const request = useCallback(
-    async <T,>(method: string, body: object = {}): Promise<T> => {
+    async <T,>(method: string, body: object = {}, headers: Record<string, string> = {}): Promise<T> => {
       const session = sessionRef.current;
       if (!session) {
         throw new Error("Not signed in");
@@ -137,7 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           sessionRef.current = fresh;
           setState((s) => ({ ...s, session: fresh }));
         }
-        return await apiRequest<T>(fresh.server, fresh.accessToken, method, body);
+        return await apiRequest<T>(fresh.server, fresh.accessToken, method, body, headers);
       } catch (err) {
         if (isAuthorizationGone(err)) {
           await toSetup(EXPIRED_MESSAGE);
