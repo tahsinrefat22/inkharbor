@@ -1,6 +1,7 @@
 import * as LocalAuthentication from "expo-local-authentication";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
+import { clearCache } from "@/lib/cache";
 import { apiRequest, getAuthInfo, OutlineApiError } from "@/lib/outline/api";
 import { revokeTokens, signIn, SignInError } from "@/lib/outline/oauth";
 import {
@@ -96,9 +97,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return updated;
   }, []);
 
-  /** Forgets the authorization but keeps the server and its registration. */
+  /**
+   * Forgets the authorization and the saved copies of the account's content,
+   * but keeps the server address and the app's registration with it.
+   */
   const toSetup = useCallback(async (message: string | null) => {
     await clearSession();
+    await clearCache().catch(() => {
+      // Nothing saved yet, or storage unavailable; nothing to wipe.
+    });
     await setLocked(false);
     const lastServer =
       (await getLastServer()) ?? process.env.EXPO_PUBLIC_DEFAULT_SERVER_URL ?? "";

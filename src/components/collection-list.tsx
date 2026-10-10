@@ -1,9 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   FlatList,
+  Keyboard,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -16,9 +18,16 @@ import { ItemIcon } from "@/components/item-icon";
 import { SearchResultRow } from "@/components/search-result-row";
 import { useColors } from "@/constants/colors";
 import { useDocumentSearch } from "@/hooks/use-document-search";
-import { useLoader } from "@/hooks/use-loader";
+import { OfflineNote } from "@/components/offline-note";
+import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
+import { readEntry, writeEntry } from "@/lib/cache";
 import { useAuth } from "@/lib/auth";
-import { listCollections } from "@/lib/outline/collections";
+import { listCollections, type Collection } from "@/lib/outline/collections";
+
+const collectionsCache: CacheAdapter<Collection[]> = {
+  read: () => readEntry<Collection[]>("collections"),
+  write: (value) => writeEntry("collections", value),
+};
 
 /**
  * The signed-in home screen: a search box above the user's collections. While
@@ -29,10 +38,27 @@ export function CollectionList() {
   const colors = useColors();
   const { request } = useAuth();
   const load = useCallback(() => listCollections(request), [request]);
-  const { data, error, loading, refreshing, reload } = useLoader(load);
+  const { data, error, loading, refreshing, offlineSince, reload } = useCachedLoader(load, collectionsCache);
   const [query, setQuery] = useState("");
   const search = useDocumentSearch(query);
   const searching = query.trim() !== "";
+
+  // Android back while searching goes back to the collections instead of
+  // leaving the app. Only while this screen is in front, so back from an
+  // opened result still returns to the results.
+  useFocusEffect(
+    useCallback(() => {
+      if (!query) {
+        return;
+      }
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        Keyboard.dismiss();
+        setQuery("");
+        return true;
+      });
+      return () => subscription.remove();
+    }, [query]),
+  );
 
   const collectionNames = useMemo(
     () => Object.fromEntries((data ?? []).map((collection) => [collection.id, collection.name])),
@@ -109,7 +135,10 @@ export function CollectionList() {
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} />}
           ListHeaderComponent={
-            error ? <Text style={[styles.message, { color: colors.danger }]}>{error}</Text> : null
+            <>
+              <OfflineNote savedAt={offlineSince} />
+              {error ? <Text style={[styles.message, { color: colors.danger }]}>{error}</Text> : null}
+            </>
           }
           ListEmptyComponent={
             error ? null : (

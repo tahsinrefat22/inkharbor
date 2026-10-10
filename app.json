@@ -43,7 +43,8 @@
         {
           "faceIDPermission": "Allow Inkharbor to use Face ID to sign you in."
         }
-      ]
+      ],
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true,

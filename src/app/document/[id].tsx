@@ -1,21 +1,35 @@
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { ItemIcon } from "@/components/item-icon";
 import { DocumentBody } from "@/components/reader/document-body";
 import { useColors } from "@/constants/colors";
-import { useLoader } from "@/hooks/use-loader";
+import { OfflineNote } from "@/components/offline-note";
+import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
+import { readDocument, writeDocument } from "@/lib/cache";
 import { useAuth } from "@/lib/auth";
-import { documentIdFromLink, getDocument, resolveAttachmentUrl } from "@/lib/outline/documents";
+import {
+  documentIdFromLink,
+  getDocument,
+  resolveAttachmentUrl,
+  type OutlineDocument,
+} from "@/lib/outline/documents";
 
 export default function DocumentScreen() {
   const { id, title: initialTitle } = useLocalSearchParams<{ id: string; title?: string }>();
   const colors = useColors();
   const { request, session } = useAuth();
   const load = useCallback(() => getDocument(request, id), [request, id]);
-  const { data: doc, error, loading, refreshing, reload } = useLoader(load);
+  const cache = useMemo<CacheAdapter<OutlineDocument>>(
+    () => ({
+      read: () => readDocument(id),
+      write: (value) => writeDocument(value, { opened: true }),
+    }),
+    [id],
+  );
+  const { data: doc, error, loading, refreshing, offlineSince, reload } = useCachedLoader(load, cache);
 
   const openDocument = useCallback((documentId: string) => {
     router.push({ pathname: "/document/[id]", params: { id: documentId } });
@@ -57,6 +71,7 @@ export default function DocumentScreen() {
           </Text>
         </View>
         {updated ? <Text style={[styles.meta, { color: colors.muted }]}>{updated}</Text> : null}
+        <OfflineNote savedAt={offlineSince} />
         {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
         {loading ? (
           <ActivityIndicator style={styles.loading} color={colors.text} />

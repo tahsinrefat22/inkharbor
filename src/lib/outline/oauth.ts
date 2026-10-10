@@ -2,7 +2,7 @@ import * as Linking from "expo-linking";
 import * as SecureStore from "expo-secure-store";
 import * as WebBrowser from "expo-web-browser";
 
-import { normalizeServerUrl } from "./api";
+import { normalizeServerUrl, OutlineApiError } from "./api";
 import { createPkcePair, randomBase64Url } from "./pkce";
 
 // OAuth 2.0 + PKCE login against Outline as a public client (no secret),
@@ -170,10 +170,14 @@ async function postToken(
     body: toQuery(params),
   });
   const body = await res.json().catch(() => ({}));
+  // Only a real refusal from Outline means the authorization is gone. Server
+  // errors and proxy error pages are temporary: report them as such, so a
+  // brief outage never signs the user out or wipes their saved copies.
+  if (res.status === 400 || res.status === 401) {
+    throw new SignInError(body.error_description ?? "The server refused the authorization.");
+  }
   if (!res.ok || !body.access_token || !body.refresh_token) {
-    throw new SignInError(
-      body.error_description ?? `Token request failed (HTTP ${res.status}).`,
-    );
+    throw new OutlineApiError(res.status, `Token request failed (HTTP ${res.status}).`);
   }
   return {
     accessToken: body.access_token,

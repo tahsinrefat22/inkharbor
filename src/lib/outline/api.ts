@@ -12,6 +12,11 @@ export class OutlineApiError extends Error {
   get isUnauthorized(): boolean {
     return this.status === 401;
   }
+
+  /** True for server-side failures (5xx, including proxy error pages). */
+  get isServerError(): boolean {
+    return this.status >= 500;
+  }
 }
 
 /** Removes trailing slashes so URLs can be joined safely. */

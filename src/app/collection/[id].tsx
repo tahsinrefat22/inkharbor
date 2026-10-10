@@ -4,7 +4,9 @@ import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Tex
 
 import { ItemIcon } from "@/components/item-icon";
 import { useColors } from "@/constants/colors";
-import { useLoader } from "@/hooks/use-loader";
+import { OfflineNote } from "@/components/offline-note";
+import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
+import { readEntry, writeEntry } from "@/lib/cache";
 import { useAuth } from "@/lib/auth";
 import { getDocumentTree, type DocumentNode } from "@/lib/outline/collections";
 
@@ -26,7 +28,14 @@ export default function CollectionScreen() {
   const colors = useColors();
   const { request } = useAuth();
   const load = useCallback(() => getDocumentTree(request, id), [request, id]);
-  const { data, error, loading, refreshing, reload } = useLoader(load);
+  const cache = useMemo<CacheAdapter<DocumentNode[]>>(
+    () => ({
+      read: () => readEntry<DocumentNode[]>(`tree:${id}`),
+      write: (value) => writeEntry(`tree:${id}`, value),
+    }),
+    [id],
+  );
+  const { data, error, loading, refreshing, offlineSince, reload } = useCachedLoader(load, cache);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const rows = useMemo(() => visibleRows(data ?? [], expanded), [data, expanded]);
@@ -55,7 +64,10 @@ export default function CollectionScreen() {
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} />}
           ListHeaderComponent={
-            error ? <Text style={[styles.message, { color: colors.danger }]}>{error}</Text> : null
+            <>
+              <OfflineNote savedAt={offlineSince} />
+              {error ? <Text style={[styles.message, { color: colors.danger }]}>{error}</Text> : null}
+            </>
           }
           ListEmptyComponent={
             error ? null : (

@@ -8,6 +8,7 @@ import { Button } from "@/components/button";
 import { CollectionList } from "@/components/collection-list";
 import { useColors, type Colors } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
+import { syncStarredDocuments } from "@/lib/outline/stars";
 
 export default function Index() {
   const colors = useColors();
@@ -103,7 +104,14 @@ function Locked({ colors }: { colors: Colors }) {
 
 /** Signed in: the user's collections. */
 function Home({ colors }: { colors: Colors }) {
-  const { session, offline } = useAuth();
+  const { session, request } = useAuth();
+
+  // Keep starred documents saved on the device for offline reading.
+  useEffect(() => {
+    syncStarredDocuments(request).catch(() => {
+      // Offline or the server is busy; it runs again next time.
+    });
+  }, [request]);
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
       <Stack.Screen
@@ -112,11 +120,6 @@ function Home({ colors }: { colors: Colors }) {
           headerRight: () => <AccountMenu />,
         }}
       />
-      {offline ? (
-        <Text style={[styles.banner, { color: colors.muted }]}>
-          {"Can't reach the server right now. Pull down to try again."}
-        </Text>
-      ) : null}
       <CollectionList />
     </View>
   );
@@ -144,10 +147,5 @@ const styles = StyleSheet.create({
   },
   flex: {
     flex: 1,
-  },
-  banner: {
-    textAlign: "center",
-    paddingTop: 12,
-    paddingHorizontal: 16,
   },
 });
