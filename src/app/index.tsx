@@ -35,7 +35,8 @@ export default function Index() {
   const dark = useColorScheme() === "dark";
   const colors = dark ? darkColors : lightColors;
   const [state, setState] = useState<State>({ kind: "loading" });
-  const [server, setServer] = useState("");
+  // EXPO_PUBLIC_DEFAULT_SERVER_URL pre-fills the field during development.
+  const [server, setServer] = useState(process.env.EXPO_PUBLIC_DEFAULT_SERVER_URL ?? "");
   const [busy, setBusy] = useState(false);
 
   async function showSignedIn(session: Session) {

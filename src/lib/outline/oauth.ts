@@ -1,4 +1,5 @@
 import * as Linking from "expo-linking";
+import * as SecureStore from "expo-secure-store";
 import * as WebBrowser from "expo-web-browser";
 
 import { normalizeServerUrl } from "./api";
@@ -15,11 +16,70 @@ import { createPkcePair, randomBase64Url } from "./pkce";
 //    that forwards the code to the app.
 // 3. Authorize in the system browser, then exchange the code with the PKCE
 //    verifier.
+//
+// Registrations are remembered per server: Outline allows only five per hour,
+// and against older servers each attempt would otherwise cost two.
 
 /** The URL the browser hands the code back to: inkharbor://oauth in builds. */
 export const appReturnUrl = Linking.createURL("oauth");
 
 const relayUrl = process.env.EXPO_PUBLIC_OAUTH_RELAY_URL;
+
+const CLIENTS_KEY = "oauth_clients";
+
+interface RegisteredClient {
+  clientId: string;
+  redirectUri: string;
+}
+
+async function loadClients(): Promise<Record<string, RegisteredClient>> {
+  const raw = await SecureStore.getItemAsync(CLIENTS_KEY);
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function saveClient(server: string, client: RegisteredClient): Promise<void> {
+  const clients = await loadClients();
+  clients[server] = client;
+  await SecureStore.setItemAsync(CLIENTS_KEY, JSON.stringify(clients));
+}
+
+/** Forgets a server's registration, e.g. after an admin deleted the app. */
+export async function forgetClient(server: string): Promise<void> {
+  const clients = await loadClients();
+  delete clients[normalizeServerUrl(server)];
+  await SecureStore.setItemAsync(CLIENTS_KEY, JSON.stringify(clients));
+}
+
+/**
+ * Returns this app's client for the server, registering it the first time:
+ * with the app's own URL if the server accepts it, otherwise the relay.
+ */
+async function getClient(server: string, discovery: Discovery): Promise<RegisteredClient> {
+  const known = (await loadClients())[server];
+  // A relay registration is only reusable while a relay is still configured.
+  if (known && (known.redirectUri === appReturnUrl || known.redirectUri === relayUrl)) {
+    return known;
+  }
+
+  let redirectUri = appReturnUrl;
+  let clientId = await registerClient(discovery, redirectUri);
+  if (!clientId && relayUrl) {
+    redirectUri = relayUrl;
+    clientId = await registerClient(discovery, redirectUri);
+  }
+  if (!clientId) {
+    throw new SignInError(
+      "This Outline server doesn't accept app sign-ins yet. It needs a newer Outline version, or a relay page (see the README).",
+    );
+  }
+  const client = { clientId, redirectUri };
+  await saveClient(server, client);
+  return client;
+}
 
 interface Discovery {
   authorization_endpoint: string;
@@ -131,17 +191,7 @@ export async function signIn(serverInput: string): Promise<SignInResult | null> 
   const server = normalizeServerUrl(serverInput);
   const discovery = await discover(server);
 
-  let redirectUri = appReturnUrl;
-  let clientId = await registerClient(discovery, redirectUri);
-  if (!clientId && relayUrl) {
-    redirectUri = relayUrl;
-    clientId = await registerClient(discovery, redirectUri);
-  }
-  if (!clientId) {
-    throw new SignInError(
-      "This Outline server doesn't accept app sign-ins yet. It needs a newer Outline version, or a relay page (see the README).",
-    );
-  }
+  const { clientId, redirectUri } = await getClient(server, discovery);
 
   const pkce = await createPkcePair();
   const state = randomBase64Url(16);
