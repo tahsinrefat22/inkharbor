@@ -250,3 +250,20 @@ export function refreshTokens(
     client_id: clientId,
   });
 }
+
+/**
+ * Revokes the app's authorization on the server (RFC 7009). Revoking the
+ * refresh token deletes the whole grant, access token included. Best effort:
+ * if it fails, the grant still expires on the server after 30 days unused.
+ */
+export async function revokeTokens(server: string, refreshToken: string): Promise<void> {
+  try {
+    await fetch(`${normalizeServerUrl(server)}/oauth/revoke`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: toQuery({ token: refreshToken, token_type_hint: "refresh_token" }),
+    });
+  } catch {
+    // Offline or unreachable: disconnecting locally still proceeds.
+  }
+}

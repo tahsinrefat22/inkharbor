@@ -37,7 +37,13 @@
       ],
       "expo-web-browser",
       "expo-image",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Inkharbor to use Face ID to sign you in."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

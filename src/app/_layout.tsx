@@ -1,5 +1,11 @@
 import { Stack } from "expo-router";
 
+import { AuthProvider } from "@/lib/auth";
+
 export default function RootLayout() {
-  return <Stack screenOptions={{ title: "Inkharbor" }} />;
+  return (
+    <AuthProvider>
+      <Stack screenOptions={{ title: "Inkharbor" }} />
+    </AuthProvider>
+  );
 }

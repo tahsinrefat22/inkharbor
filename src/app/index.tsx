@@ -1,122 +1,50 @@
+import * as LocalAuthentication from "expo-local-authentication";
+import { Link } from "expo-router";
 import { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  useColorScheme,
-  View,
-} from "react-native";
+import { ActivityIndicator, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { getAuthInfo, OutlineApiError, type AuthInfo } from "@/lib/outline/api";
-import { signIn, SignInError } from "@/lib/outline/oauth";
-import {
-  clearSession,
-  getAccessToken,
-  loadSession,
-  saveSession,
-  type Session,
-} from "@/lib/session";
-
-type State =
-  | { kind: "loading" }
-  | { kind: "signedOut"; error?: string }
-  | { kind: "signedIn"; session: Session; info: AuthInfo };
-
-function describeError(err: unknown): string {
-  if (err instanceof SignInError || err instanceof OutlineApiError) {
-    return err.message;
-  }
-  return "Something went wrong. Check the server address and your connection.";
-}
+import { Button } from "@/components/button";
+import { useColors, type Colors } from "@/constants/colors";
+import { useAuth } from "@/lib/auth";
 
 export default function Index() {
-  const dark = useColorScheme() === "dark";
-  const colors = dark ? darkColors : lightColors;
-  const [state, setState] = useState<State>({ kind: "loading" });
-  // EXPO_PUBLIC_DEFAULT_SERVER_URL pre-fills the field during development.
-  const [server, setServer] = useState(process.env.EXPO_PUBLIC_DEFAULT_SERVER_URL ?? "");
-  const [busy, setBusy] = useState(false);
+  const colors = useColors();
+  const auth = useAuth();
 
-  async function showSignedIn(session: Session) {
-    const fresh = await getAccessToken(session);
-    const info = await getAuthInfo(fresh.server, fresh.accessToken);
-    setState({ kind: "signedIn", session: fresh, info });
-  }
-
-  useEffect(() => {
-    (async () => {
-      const session = await loadSession();
-      if (!session) {
-        setState({ kind: "signedOut" });
-        return;
-      }
-      try {
-        await showSignedIn(session);
-      } catch (err) {
-        if (err instanceof OutlineApiError && err.isUnauthorized) {
-          await clearSession();
-          setState({ kind: "signedOut", error: "Your session ended. Please sign in again." });
-          return;
-        }
-        setState({ kind: "signedOut", error: describeError(err) });
-      }
-    })();
-  }, []);
-
-  async function handleSignIn() {
-    setBusy(true);
-    try {
-      const result = await signIn(server);
-      if (!result) {
-        return;
-      }
-      await saveSession(result);
-      await showSignedIn(result);
-    } catch (err) {
-      setState({ kind: "signedOut", error: describeError(err) });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleSignOut() {
-    await clearSession();
-    setState({ kind: "signedOut" });
-  }
-
-  if (state.kind === "loading") {
+  if (auth.status === "loading") {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ActivityIndicator color={colors.text} />
       </View>
     );
   }
+  if (auth.status === "setup") {
+    return <Setup colors={colors} />;
+  }
+  if (auth.status === "locked") {
+    return <Locked colors={colors} />;
+  }
+  return <Home colors={colors} />;
+}
 
-  if (state.kind === "signedIn") {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Text style={[styles.title, { color: colors.text }]}>{state.info.team.name}</Text>
-        <Text style={{ color: colors.muted }}>
-          Signed in as {state.info.user.name} ({state.info.user.email})
-        </Text>
-        <Text style={[styles.server, { color: colors.muted }]}>{state.session.server}</Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={handleSignOut}
-          style={[styles.button, { borderColor: colors.border }]}
-        >
-          <Text style={{ color: colors.text }}>Sign out</Text>
-        </Pressable>
-      </View>
-    );
+/** First run, or after a disconnect: pick a server and authorize once. */
+function Setup({ colors }: { colors: Colors }) {
+  const { lastServer, message, connect } = useAuth();
+  const [server, setServer] = useState(lastServer);
+  const [busy, setBusy] = useState(false);
+
+  async function handleConnect() {
+    setBusy(true);
+    await connect(server);
+    setBusy(false);
   }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Text style={[styles.title, { color: colors.text }]}>Connect to Outline</Text>
-      <Text style={{ color: colors.muted }}>The address of your Outline server.</Text>
+      <Text style={{ color: colors.muted }}>
+        {"Enter your Outline server's address. You'll confirm access once in the browser."}
+      </Text>
       <TextInput
         style={[styles.input, { color: colors.text, borderColor: colors.border }]}
         value={server}
@@ -127,27 +55,70 @@ export default function Index() {
         autoCorrect={false}
         keyboardType="url"
         editable={!busy}
-        onSubmitEditing={handleSignIn}
+        onSubmitEditing={handleConnect}
       />
-      <Pressable
-        accessibilityRole="button"
-        onPress={handleSignIn}
-        disabled={busy || !server.trim()}
-        style={[
-          styles.button,
-          styles.primary,
-          (busy || !server.trim()) && styles.disabled,
-        ]}
-      >
-        {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Sign in</Text>}
-      </Pressable>
-      {state.error ? <Text style={styles.error}>{state.error}</Text> : null}
+      <Button title="Continue" variant="primary" onPress={handleConnect} disabled={!server.trim()} busy={busy} />
+      {message ? <Text style={{ color: colors.danger }}>{message}</Text> : null}
     </View>
   );
 }
 
-const lightColors = { background: "#ffffff", text: "#111111", muted: "#666666", border: "#cccccc" };
-const darkColors = { background: "#111111", text: "#eeeeee", muted: "#999999", border: "#444444" };
+/** Signed out: the app is locked and opens again with the phone's own lock. */
+function Locked({ colors }: { colors: Colors }) {
+  const { session, message, unlock } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [deviceSecured, setDeviceSecured] = useState(true);
+
+  useEffect(() => {
+    LocalAuthentication.getEnrolledLevelAsync().then((level) =>
+      setDeviceSecured(level !== LocalAuthentication.SecurityLevel.NONE),
+    );
+  }, []);
+
+  async function handleSignIn() {
+    setBusy(true);
+    await unlock();
+    setBusy(false);
+  }
+
+  const account = session?.account;
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <Text style={[styles.title, { color: colors.text }]}>
+        {account?.userName ? `Welcome back, ${account.userName}` : "Welcome back"}
+      </Text>
+      {account?.teamName ? <Text style={{ color: colors.muted }}>{account.teamName}</Text> : null}
+      <Button title="Sign in" variant="primary" onPress={handleSignIn} busy={busy} />
+      {message ? <Text style={{ color: colors.danger }}>{message}</Text> : null}
+      {!deviceSecured ? (
+        <Text style={[styles.note, { color: colors.muted }]}>
+          {"Your phone has no screen lock, so anyone holding it can sign in. Set a PIN, pattern or fingerprint in your phone's settings to protect Inkharbor."}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/** Signed in. Reading features come next; for now, who and where. */
+function Home({ colors }: { colors: Colors }) {
+  const { session, offline, lock } = useAuth();
+  const account = session?.account;
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <Text style={[styles.title, { color: colors.text }]}>{account?.teamName || "Outline"}</Text>
+      <Text style={{ color: colors.muted }}>
+        Signed in as {account?.userName} ({account?.userEmail})
+      </Text>
+      {offline ? (
+        <Text style={{ color: colors.muted }}>{"Can't reach the server right now. Showing saved details."}</Text>
+      ) : null}
+      <Button title="Sign out" onPress={lock} />
+      <Link href="/settings" style={[styles.link, { color: colors.primary }]}>
+        Settings
+      </Link>
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
   container: {
@@ -160,33 +131,17 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "600",
   },
-  server: {
-    fontSize: 12,
-  },
   input: {
     borderWidth: 1,
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
   },
-  button: {
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 14,
-    alignItems: "center",
+  note: {
+    fontSize: 13,
   },
-  primary: {
-    backgroundColor: "#2563eb",
-    borderColor: "#2563eb",
-  },
-  primaryText: {
-    color: "#ffffff",
-    fontWeight: "600",
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  error: {
-    color: "#dc2626",
+  link: {
+    textAlign: "center",
+    padding: 8,
   },
 });

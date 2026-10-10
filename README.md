@@ -8,6 +8,8 @@ Status: early. Version 0.1 is about reading: sign in to your server, browse coll
 
 Inkharbor signs in with OAuth and PKCE as a public client, so nobody has to create an OAuth app or share a secret. It registers itself with the server, opens the login page in the system browser, and gets the code back on `inkharbor://oauth`.
 
+You only do this once. After that the app opens straight into your account. Signing out locks the app instead of throwing the authorization away, and signing back in uses your phone's fingerprint, face or PIN, without the browser. Disconnect (in Settings) removes the app's access for real, for example before handing your phone to someone else. The browser is needed again only after a disconnect, after clearing the app's data, if the app isn't opened for 30 days (Outline's refresh tokens expire), or if an admin revokes access.
+
 Outline accepts custom-scheme redirect URIs like that since [outline/outline#13945](https://github.com/outline/outline/pull/13945), which is merged and will ship in the first release after 1.10.1. For older servers you can point the app at an HTTPS page that forwards the redirect (see `.env.example`). Signing in with a personal API key is planned as a fallback.
 
 ## Development
