@@ -1,9 +1,11 @@
 import * as LocalAuthentication from "expo-local-authentication";
-import { Link } from "expo-router";
+import { Stack } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TextInput, View } from "react-native";
 
+import { AccountMenu } from "@/components/account-menu";
 import { Button } from "@/components/button";
+import { CollectionList } from "@/components/collection-list";
 import { useColors, type Colors } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
 
@@ -99,23 +101,23 @@ function Locked({ colors }: { colors: Colors }) {
   );
 }
 
-/** Signed in. Reading features come next; for now, who and where. */
+/** Signed in: the user's collections. */
 function Home({ colors }: { colors: Colors }) {
-  const { session, offline, lock } = useAuth();
-  const account = session?.account;
+  const { session, offline } = useAuth();
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Text style={[styles.title, { color: colors.text }]}>{account?.teamName || "Outline"}</Text>
-      <Text style={{ color: colors.muted }}>
-        Signed in as {account?.userName} ({account?.userEmail})
-      </Text>
+    <View style={[styles.flex, { backgroundColor: colors.background }]}>
+      <Stack.Screen
+        options={{
+          title: session?.account.teamName || "Inkharbor",
+          headerRight: () => <AccountMenu />,
+        }}
+      />
       {offline ? (
-        <Text style={{ color: colors.muted }}>{"Can't reach the server right now. Showing saved details."}</Text>
+        <Text style={[styles.banner, { color: colors.muted }]}>
+          {"Can't reach the server right now. Pull down to try again."}
+        </Text>
       ) : null}
-      <Button title="Sign out" onPress={lock} />
-      <Link href="/settings" style={[styles.link, { color: colors.primary }]}>
-        Settings
-      </Link>
+      <CollectionList />
     </View>
   );
 }
@@ -140,8 +142,12 @@ const styles = StyleSheet.create({
   note: {
     fontSize: 13,
   },
-  link: {
+  flex: {
+    flex: 1,
+  },
+  banner: {
     textAlign: "center",
-    padding: 8,
+    paddingTop: 12,
+    paddingHorizontal: 16,
   },
 });

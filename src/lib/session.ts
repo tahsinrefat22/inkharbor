@@ -17,6 +17,11 @@ export interface Account {
   userName: string;
   userEmail: string;
   teamName: string;
+  /** Profile photo; missing for users without one and for older sessions. */
+  avatarUrl?: string | null;
+  /** Colour Outline assigns the user, used behind their initials. */
+  color?: string;
+  role?: string;
 }
 
 export interface Session extends SignInResult {

@@ -1,7 +1,7 @@
 import * as LocalAuthentication from "expo-local-authentication";
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { getAuthInfo, OutlineApiError } from "@/lib/outline/api";
+import { apiRequest, getAuthInfo, OutlineApiError } from "@/lib/outline/api";
 import { revokeTokens, signIn, SignInError } from "@/lib/outline/oauth";
 import {
   clearSession,
@@ -36,6 +36,8 @@ interface AuthState {
 }
 
 interface AuthContextValue extends AuthState {
+  /** Calls an Outline API method as the signed-in user. */
+  request: <T>(method: string, body?: object) => Promise<T>;
   connect: (server: string) => Promise<void>;
   lock: () => Promise<void>;
   unlock: () => Promise<void>;
@@ -68,13 +70,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     offline: false,
   });
 
+  // The latest session for request(), without re-creating it on every change.
+  const sessionRef = useRef<Session | null>(null);
+  sessionRef.current = state.session;
+  // Outline rotates refresh tokens, so concurrent requests must share one
+  // refresh instead of each spending the same refresh token.
+  const refreshRef = useRef<Promise<Session> | null>(null);
+
   /** Refreshes tokens and account details. Throws if the server says no. */
   const activate = useCallback(async (session: Session) => {
     const fresh = await getAccessToken(session);
     const info = await getAuthInfo(fresh.server, fresh.accessToken);
     const updated: Session = {
       ...fresh,
-      account: { userName: info.user.name, userEmail: info.user.email, teamName: info.team.name },
+      account: {
+        userName: info.user.name,
+        userEmail: info.user.email,
+        teamName: info.team.name,
+        avatarUrl: info.user.avatarUrl,
+        color: info.user.color,
+        role: info.user.role,
+      },
     };
     await saveSession(updated);
     return updated;
@@ -104,6 +120,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     },
     [activate, toSetup],
+  );
+
+  const request = useCallback(
+    async <T,>(method: string, body: object = {}): Promise<T> => {
+      const session = sessionRef.current;
+      if (!session) {
+        throw new Error("Not signed in");
+      }
+      try {
+        refreshRef.current ??= getAccessToken(session).finally(() => {
+          refreshRef.current = null;
+        });
+        const fresh = await refreshRef.current;
+        if (fresh !== session) {
+          sessionRef.current = fresh;
+          setState((s) => ({ ...s, session: fresh }));
+        }
+        return await apiRequest<T>(fresh.server, fresh.accessToken, method, body);
+      } catch (err) {
+        if (isAuthorizationGone(err)) {
+          await toSetup(EXPIRED_MESSAGE);
+        }
+        throw err;
+      }
+    },
+    [toSetup],
   );
 
   useEffect(() => {
@@ -180,7 +222,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [state, toSetup]);
 
   return (
-    <AuthContext.Provider value={{ ...state, connect, lock, unlock, disconnect }}>
+    <AuthContext.Provider value={{ ...state, request, connect, lock, unlock, disconnect }}>
       {children}
     </AuthContext.Provider>
   );

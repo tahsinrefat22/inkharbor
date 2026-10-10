@@ -45,7 +45,14 @@ export async function apiRequest<T>(
 }
 
 export interface AuthInfo {
-  user: { id: string; name: string; email: string; avatarUrl: string | null };
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    avatarUrl: string | null;
+    color: string;
+    role: string;
+  };
   team: { id: string; name: string; url: string };
 }
 
