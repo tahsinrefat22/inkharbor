@@ -57,7 +57,7 @@ bun run lint
 bunx tsc --noEmit
 ```
 
-A release APK, like the ones on GitHub, comes from the `preview` profile: `bunx eas-cli build --profile preview --platform android`. Release builds shrink code and resources and only include 64-bit ARM. `bunfig.toml` stops bun from installing peer packages nobody asked for, because expo-router's unused drawer would otherwise pull about 3 MB of native code into the APK.
+A release APK, like the ones on GitHub, comes from the `preview` profile: `bunx eas-cli build --profile preview --platform android`. EAS names its files after the build id, so `bun run apk` downloads the latest one as `dist/Inkharbor-v<version>.apk` and prints its SHA-256 for the release notes. Release builds shrink code and resources and only include 64-bit ARM. `bunfig.toml` stops bun from installing peer packages nobody asked for, because expo-router's unused drawer would otherwise pull about 3 MB of native code into the APK.
 
 Code layout:
 
@@ -70,6 +70,7 @@ Code layout:
 - `src/hooks/` loading with the offline copy, and search
 - `assets/logo-source/` the logo's SVG sources; the PNGs in `assets/images/` are rendered from them
 - `scripts/generate-emoji-names.ts` rebuilds the emoji name table (`bun run emoji-names`)
+- `scripts/download-apk.ts` downloads a release build with a proper name (`bun run apk`)
 
 ## License
 
