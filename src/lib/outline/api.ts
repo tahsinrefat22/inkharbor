@@ -19,6 +19,16 @@ export class OutlineApiError extends Error {
   }
 }
 
+/**
+ * True when a request never got an answer: no internet, DNS failure, refused
+ * connection. React Native's fetch throws a TypeError for these; Expo's fetch
+ * (the global one in SDK 57) throws a FetchError whose message starts with
+ * "fetch failed", and doesn't export the class.
+ */
+export function isNetworkError(err: unknown): boolean {
+  return err instanceof TypeError || (err instanceof Error && err.message.startsWith("fetch failed"));
+}
+
 /** Removes trailing slashes so URLs can be joined safely. */
 export function normalizeServerUrl(server: string): string {
   return server.trim().replace(/\/+$/, "");

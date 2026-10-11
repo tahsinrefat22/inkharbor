@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { Cached } from "@/lib/cache";
-import { OutlineApiError } from "@/lib/outline/api";
+import { isNetworkError, OutlineApiError } from "@/lib/outline/api";
 
 export interface CacheAdapter<T> {
   read: () => Promise<Cached<T> | null>;
@@ -21,7 +21,7 @@ interface CachedLoaderState<T> {
 
 /** No internet, or the server is down: a saved copy is the best we can show. */
 function isUnreachable(err: unknown): boolean {
-  return err instanceof TypeError || (err instanceof OutlineApiError && err.isServerError);
+  return isNetworkError(err) || (err instanceof OutlineApiError && err.isServerError);
 }
 
 function describeLoadError(err: unknown): string {

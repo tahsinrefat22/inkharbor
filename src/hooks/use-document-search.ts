@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/lib/auth";
+import { isNetworkError } from "@/lib/outline/api";
 import { searchDocuments, type SearchResult } from "@/lib/outline/documents";
 
 const PAGE_SIZE = 25;
@@ -45,7 +46,7 @@ export function useDocumentSearch(query: string): DocumentSearch {
         }
       } catch (err) {
         if (id === searchId.current) {
-          setError(err instanceof TypeError ? "Can't reach the server." : "Search failed. Try again.");
+          setError(isNetworkError(err) ? "Can't reach the server." : "Search failed. Try again.");
         }
       } finally {
         if (id === searchId.current) {
