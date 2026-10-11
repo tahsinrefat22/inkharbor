@@ -1,7 +1,7 @@
 import { Image } from "expo-image";
 import { createContext, useContext, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import {
-  FlatList,
+  Animated,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +13,7 @@ import {
   type ViewStyle,
 } from "react-native";
 
+import { useScrollThumb } from "@/components/reader/scroll-thumb";
 import type { Colors } from "@/constants/colors";
 import emojiNames from "@/lib/emoji-names.json";
 import type { PMNode } from "@/lib/outline/documents";
@@ -102,21 +103,26 @@ export function DocumentList({
     () => ({ server, accessToken, colors, openLink, openDocument }),
     [server, accessToken, colors, openLink, openDocument],
   );
+  const { listProps, thumb } = useScrollThumb<PMNode>(colors);
   return (
     <ReaderContext.Provider value={context}>
-      <FlatList
-        data={blocks}
-        keyExtractor={(_, index) => String(index)}
-        renderItem={({ item }) => <Block node={item} />}
-        ItemSeparatorComponent={BlockGap}
-        ListHeaderComponent={header}
-        ListFooterComponent={footer}
-        refreshControl={refreshControl}
-        contentContainerStyle={contentContainerStyle}
-        initialNumToRender={12}
-        maxToRenderPerBatch={8}
-        windowSize={9}
-      />
+      <View style={styles.listFrame}>
+        <Animated.FlatList
+          {...listProps}
+          data={blocks}
+          keyExtractor={(_, index) => String(index)}
+          renderItem={({ item }) => <Block node={item} />}
+          ItemSeparatorComponent={BlockGap}
+          ListHeaderComponent={header}
+          ListFooterComponent={footer}
+          refreshControl={refreshControl}
+          contentContainerStyle={contentContainerStyle}
+          initialNumToRender={12}
+          maxToRenderPerBatch={8}
+          windowSize={9}
+        />
+        {thumb}
+      </View>
     </ReaderContext.Provider>
   );
 }
@@ -563,6 +569,9 @@ const styles = StyleSheet.create({
   },
   blockGap: {
     height: 10,
+  },
+  listFrame: {
+    flex: 1,
   },
   paragraph: {
     fontSize: 16,
