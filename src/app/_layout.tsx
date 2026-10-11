@@ -2,14 +2,18 @@ import { JetBrainsMono_400Regular, useFonts } from "@expo-google-fonts/jetbrains
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useMemo } from "react";
-import { useColorScheme } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { Appearance, StyleSheet, useColorScheme, View } from "react-native";
 
+import { OpeningAnimation } from "@/components/opening-animation";
 import { useColors } from "@/constants/colors";
 import { AuthProvider } from "@/lib/auth";
 import { applyThemePreference, loadThemePreference } from "@/lib/theme";
 
 SplashScreen.preventAutoHideAsync();
+// The phone's own setting, which the native splash screen follows; read
+// before the app's chosen theme overrides it.
+const SYSTEM_SCHEME = Appearance.getColorScheme() === "dark" ? "dark" : "light";
 // Before the first render, so a chosen theme doesn't flash the other one.
 applyThemePreference(loadThemePreference());
 
@@ -35,11 +39,9 @@ export default function RootLayout() {
     };
   }, [dark, colors]);
 
-  useEffect(() => {
-    if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded, fontError]);
+  // The opening animation hides the native splash once its first frame is up.
+  const [intro, setIntro] = useState(true);
+  const endIntro = useCallback(() => setIntro(false), []);
 
   if (!fontsLoaded && !fontError) {
     return null;
@@ -49,16 +51,25 @@ export default function RootLayout() {
     <ThemeProvider value={theme}>
       <AuthProvider>
         <StatusBar style={dark ? "light" : "dark"} />
-        <Stack
-          screenOptions={{
-            title: "Inkharbor",
-            headerStyle: { backgroundColor: colors.background },
-            headerTintColor: colors.text,
-            headerShadowVisible: false,
-            contentStyle: { backgroundColor: colors.background },
-          }}
-        />
+        <View style={styles.root}>
+          <Stack
+            screenOptions={{
+              title: "Inkharbor",
+              headerStyle: { backgroundColor: colors.background },
+              headerTintColor: colors.text,
+              headerShadowVisible: false,
+              contentStyle: { backgroundColor: colors.background },
+            }}
+          />
+          {intro ? <OpeningAnimation scheme={SYSTEM_SCHEME} onDone={endIntro} /> : null}
+        </View>
       </AuthProvider>
     </ThemeProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+});

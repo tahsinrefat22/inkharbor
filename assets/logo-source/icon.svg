@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img">
+  <rect id="background" width="1024" height="1024" fill="#111111"/>
+  <path id="drop" d="M512 282L589.9 417A90 90 0 1 1 434.1 417Z" fill="#3b82f6"/>
+  <path id="basin" d="M240 622A420 420 0 0 0 784 622" fill="none" stroke="#ffffff" stroke-width="36" stroke-linecap="round"/>
+  <line id="water" x1="432" y1="637" x2="592" y2="637" stroke="#ffffff" stroke-width="36" stroke-linecap="round"/>
+</svg>
