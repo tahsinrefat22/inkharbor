@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { ItemIcon } from "@/components/item-icon";
-import { useColors } from "@/constants/colors";
+import { refreshColors, useColors } from "@/constants/colors";
 import { OfflineNote } from "@/components/offline-note";
 import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
 import { readEntry, writeEntry } from "@/lib/cache";
@@ -62,7 +62,7 @@ export default function CollectionScreen() {
           data={rows}
           keyExtractor={(row) => row.node.id}
           contentContainerStyle={styles.list}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} {...refreshColors(colors)} />}
           ListHeaderComponent={
             <>
               <OfflineNote savedAt={offlineSince} />

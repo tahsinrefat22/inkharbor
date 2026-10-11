@@ -16,7 +16,7 @@ import {
 
 import { ItemIcon } from "@/components/item-icon";
 import { SearchResultRow } from "@/components/search-result-row";
-import { useColors } from "@/constants/colors";
+import { refreshColors, useColors } from "@/constants/colors";
 import { useDocumentSearch } from "@/hooks/use-document-search";
 import { OfflineNote } from "@/components/offline-note";
 import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
@@ -75,6 +75,7 @@ export function CollectionList() {
           onChangeText={setQuery}
           placeholder="Search all documents"
           placeholderTextColor={colors.muted}
+          selectionColor={colors.primary}
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="search"
@@ -133,7 +134,7 @@ export function CollectionList() {
           keyExtractor={(collection) => collection.id}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.list}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} {...refreshColors(colors)} />}
           ListHeaderComponent={
             <>
               <OfflineNote savedAt={offlineSince} />

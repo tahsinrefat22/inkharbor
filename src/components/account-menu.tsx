@@ -38,8 +38,8 @@ export function AccountMenu() {
         <Avatar name={name} avatarUrl={account.avatarUrl} color={account.color} size={32} server={server} accessToken={accessToken} />
       </Pressable>
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={styles.backdrop} onPress={() => setOpen(false)} accessibilityLabel="Close">
-          <Pressable style={[styles.card, { backgroundColor: colors.background, borderColor: colors.border }]}>
+        <Pressable style={[styles.backdrop, { backgroundColor: colors.overlay }]} onPress={() => setOpen(false)} accessibilityLabel="Close">
+          <Pressable style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.identity}>
               <Avatar name={name} avatarUrl={account.avatarUrl} color={account.color} size={56} server={server} accessToken={accessToken} />
               <View style={styles.identityText}>
@@ -82,7 +82,6 @@ function MenuItem({ label, color, onPress }: { label: string; color: string; onP
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.35)",
     alignItems: "flex-end",
     paddingTop: 56,
     paddingHorizontal: 12,

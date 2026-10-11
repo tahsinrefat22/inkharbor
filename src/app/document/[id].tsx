@@ -5,7 +5,7 @@ import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View }
 
 import { ItemIcon } from "@/components/item-icon";
 import { DocumentBody } from "@/components/reader/document-body";
-import { useColors } from "@/constants/colors";
+import { refreshColors, useColors } from "@/constants/colors";
 import { OfflineNote } from "@/components/offline-note";
 import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
 import { readDocument, writeDocument } from "@/lib/cache";
@@ -62,7 +62,7 @@ export default function DocumentScreen() {
       <Stack.Screen options={{ title: title || "Document" }} />
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} {...refreshColors(colors)} />}
       >
         <View style={styles.titleRow}>
           {doc?.icon ? <ItemIcon icon={doc.icon} color={doc.color} label={title} /> : null}

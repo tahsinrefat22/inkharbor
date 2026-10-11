@@ -54,6 +54,7 @@ function Setup({ colors }: { colors: Colors }) {
         onChangeText={setServer}
         placeholder="https://docs.example.com"
         placeholderTextColor={colors.muted}
+        selectionColor={colors.primary}
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="url"
