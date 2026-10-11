@@ -10,6 +10,7 @@ import {
 } from "react-native";
 
 import type { Colors } from "@/constants/colors";
+import emojiNames from "@/lib/emoji-names.json";
 import type { PMNode } from "@/lib/outline/documents";
 
 // Renders Outline's ProseMirror JSON with native components. Every node and
@@ -55,6 +56,8 @@ function numberAttr(node: PMNode, name: string): number | undefined {
   const value = Number(attr(node, name));
   return Number.isFinite(value) && value > 0 ? value : undefined;
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** All text inside a node, e.g. for code blocks and maths. */
 function plainText(node: PMNode): string {
@@ -203,8 +206,13 @@ function InlineNode({ node }: { node: PMNode }) {
       return <MarkedText node={node} />;
     case "br":
       return <Text>{"\n"}</Text>;
-    case "emoji":
-      return <Text>{plainText(node) || `:${stringAttr(node, "data-name") ?? ""}:`}</Text>;
+    case "emoji": {
+      // Outline stores the shortcode ("rocket"); custom workspace emoji are
+      // stored by id and aren't shown yet.
+      const name = stringAttr(node, "data-name") ?? "";
+      const native = (emojiNames as Record<string, string>)[name];
+      return <Text>{native ?? (UUID.test(name) ? "" : `:${name}:`)}</Text>;
+    }
     case "math_inline":
       return <Text style={[styles.codeInline, { backgroundColor: colors.codeBackground }]}>{plainText(node)}</Text>;
     case "mention": {
