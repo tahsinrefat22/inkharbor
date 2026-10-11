@@ -2,11 +2,13 @@ import { Image } from "expo-image";
 import { createContext, useContext, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import {
   Animated,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  type PanResponderInstance,
   type RefreshControlProps,
   type StyleProp,
   type TextStyle,
@@ -76,9 +78,10 @@ function plainText(node: PMNode): string {
 }
 
 /**
- * A document as a virtualised list of its top-level blocks: only the blocks
- * on or near the screen are drawn, so long documents open quickly on slower
- * phones. `header` and `footer` scroll with the document.
+ * A document as a virtualised list: only what's on or near the screen is
+ * drawn, so long documents open quickly on slower phones. Top-level lists
+ * and tables are split into one entry per item or row, so even a huge table
+ * is drawn a screenful at a time. `header` and `footer` scroll with it.
  */
 export function DocumentList({
   blocks,
@@ -103,16 +106,16 @@ export function DocumentList({
     () => ({ server, accessToken, colors, openLink, openDocument }),
     [server, accessToken, colors, openLink, openDocument],
   );
-  const { listProps, thumb } = useScrollThumb<PMNode>(colors);
+  const rows = useMemo(() => toRows(blocks), [blocks]);
+  const { listProps, thumb } = useScrollThumb<Row>(colors);
   return (
     <ReaderContext.Provider value={context}>
       <View style={styles.listFrame}>
         <Animated.FlatList
           {...listProps}
-          data={blocks}
-          keyExtractor={(_, index) => String(index)}
-          renderItem={({ item }) => <Block node={item} />}
-          ItemSeparatorComponent={BlockGap}
+          data={rows}
+          keyExtractor={(row) => row.key}
+          renderItem={({ item }) => <RowView row={item} />}
           ListHeaderComponent={header}
           ListFooterComponent={footer}
           refreshControl={refreshControl}
@@ -127,8 +130,122 @@ export function DocumentList({
   );
 }
 
-function BlockGap() {
-  return <View style={styles.blockGap} />;
+/** Space between blocks, and between the items of one list (styles.list). */
+const BLOCK_GAP = 10;
+const LIST_ITEM_GAP = 4;
+
+/**
+ * The shared sideways position of a split table's rows, and the one swipe
+ * handler they all use.
+ */
+interface TableScroll {
+  x: Animated.Value;
+  /** Full width of the table. */
+  width: number;
+  pan: PanResponderInstance;
+  /** Records the width the table is shown in, which limits the scrolling. */
+  setViewport: (width: number) => void;
+}
+
+type Row = { key: string; gap: number } & (
+  | { kind: "block"; node: PMNode }
+  | { kind: "listItem"; list: PMNode; item: PMNode; index: number }
+  | { kind: "tableRow"; table: TableScroll; row: PMNode; first: boolean }
+);
+
+const LIST_TYPES = new Set(["bullet_list", "ordered_list", "checkbox_list"]);
+
+function toRows(blocks: PMNode[]): Row[] {
+  const rows: Row[] = [];
+  blocks.forEach((node, b) => {
+    const gap = rows.length ? BLOCK_GAP : 0;
+    const items = node.content ?? [];
+    if (LIST_TYPES.has(node.type) && items.length) {
+      items.forEach((item, index) =>
+        rows.push({ key: `${b}.${index}`, gap: index ? LIST_ITEM_GAP : gap, kind: "listItem", list: node, item, index }),
+      );
+    } else if (node.type === "table" && items.length) {
+      const table = newTableScroll(Math.max(...items.map(rowWidth)) + StyleSheet.hairlineWidth);
+      items.forEach((row, index) =>
+        rows.push({ key: `${b}.${index}`, gap: index ? 0 : gap, kind: "tableRow", table, row, first: !index }),
+      );
+    } else {
+      rows.push({ key: `${b}`, gap, kind: "block", node });
+    }
+  });
+  return rows;
+}
+
+function newTableScroll(width: number): TableScroll {
+  const x = new Animated.Value(0);
+  let value = 0;
+  let start = 0;
+  let viewport = width;
+  const clamp = (to: number) => Math.min(Math.max(to, Math.min(viewport - width, 0)), 0);
+
+  x.addListener((event) => {
+    value = event.value;
+    // Momentum stops at the table's edges.
+    const clamped = clamp(value);
+    if (clamped !== value) {
+      x.stopAnimation();
+      x.setValue(clamped);
+    }
+  });
+
+  const pan = PanResponder.create({
+    // Only sideways swipes; vertical ones scroll the document.
+    onMoveShouldSetPanResponder: (_event, g) => Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy),
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderGrant: () => {
+      x.stopAnimation();
+      start = value;
+    },
+    onPanResponderMove: (_event, g) => x.setValue(clamp(start + g.dx)),
+    onPanResponderRelease: (_event, g) => {
+      Animated.decay(x, { velocity: g.vx, deceleration: 0.997, useNativeDriver: false }).start();
+    },
+  });
+
+  return {
+    x,
+    width,
+    pan,
+    setViewport: (next) => {
+      viewport = next;
+    },
+  };
+}
+
+function RowView({ row }: { row: Row }) {
+  let content: ReactNode;
+  if (row.kind === "listItem") {
+    content = <ListItemView list={row.list} item={row.item} index={row.index} />;
+  } else if (row.kind === "tableRow") {
+    content = <SplitTableRow table={row.table} row={row.row} first={row.first} />;
+  } else {
+    content = <Block node={row.node} />;
+  }
+  return <View style={{ paddingTop: row.gap }}>{content}</View>;
+}
+
+/**
+ * One row of a split table. Every row of the table shares one sideways
+ * position, so swiping any row scrolls the whole table and the columns
+ * stay aligned.
+ */
+function SplitTableRow({ table, row, first }: { table: TableScroll; row: PMNode; first: boolean }) {
+  return (
+    <View
+      style={styles.splitTableFrame}
+      onLayout={(event) => table.setViewport(event.nativeEvent.layout.width)}
+      {...table.pan.panHandlers}
+    >
+      <Animated.View style={{ width: table.width, transform: [{ translateX: table.x }] }}>
+        <TableRowView row={row} first={first} />
+      </Animated.View>
+    </View>
+  );
 }
 
 function Blocks({ nodes }: { nodes: PMNode[] }) {
@@ -342,35 +459,38 @@ function MarkedText({ node }: { node: PMNode }) {
 }
 
 function List({ node }: { node: PMNode }) {
-  const { colors } = useReader();
-  const start = numberAttr(node, "order") ?? 1;
   return (
     <View style={styles.list}>
-      {(node.content ?? []).map((item, i) => {
-        let marker: string;
-        let checked = false;
-        if (node.type === "checkbox_list") {
-          checked = attr(item, "checked") === true;
-          marker = checked ? "☑" : "☐";
-        } else if (node.type === "ordered_list") {
-          marker = `${start + i}.`;
-        } else {
-          marker = "•";
-        }
-        return (
-          <View key={i} style={styles.listItem}>
-            <Text
-              style={[styles.marker, { color: colors.muted }, node.type === "checkbox_list" && styles.checkbox]}
-              accessibilityLabel={node.type === "checkbox_list" ? (checked ? "Done" : "Not done") : undefined}
-            >
-              {marker}
-            </Text>
-            <View style={[styles.listBody, checked && styles.checked]}>
-              <Blocks nodes={item.content ?? []} />
-            </View>
-          </View>
-        );
-      })}
+      {(node.content ?? []).map((item, i) => (
+        <ListItemView key={i} list={node} item={item} index={i} />
+      ))}
+    </View>
+  );
+}
+
+function ListItemView({ list, item, index }: { list: PMNode; item: PMNode; index: number }) {
+  const { colors } = useReader();
+  let marker: string;
+  let checked = false;
+  if (list.type === "checkbox_list") {
+    checked = attr(item, "checked") === true;
+    marker = checked ? "☑" : "☐";
+  } else if (list.type === "ordered_list") {
+    marker = `${(numberAttr(list, "order") ?? 1) + index}.`;
+  } else {
+    marker = "•";
+  }
+  return (
+    <View style={styles.listItem}>
+      <Text
+        style={[styles.marker, { color: colors.muted }, list.type === "checkbox_list" && styles.checkbox]}
+        accessibilityLabel={list.type === "checkbox_list" ? (checked ? "Done" : "Not done") : undefined}
+      >
+        {marker}
+      </Text>
+      <View style={[styles.listBody, checked && styles.checked]}>
+        <Blocks nodes={item.content ?? []} />
+      </View>
     </View>
   );
 }
@@ -432,36 +552,47 @@ function Toggle({ nodes }: { nodes: PMNode[] }) {
 
 const CELL_WIDTH = 160;
 
+/** A table inside another block (a list, toggle, …): one horizontal scroller. */
 function Table({ node }: { node: PMNode }) {
-  const { colors } = useReader();
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-      <View style={[styles.table, { borderColor: colors.border }]}>
+      <View>
         {(node.content ?? []).map((row, i) => (
-          <View key={i} style={styles.tableRow}>
-            {(row.content ?? []).map((cell, j) => {
-              const span = numberAttr(cell, "colspan") ?? 1;
-              const header = cell.type === "th";
-              return (
-                <View
-                  key={j}
-                  style={[
-                    styles.cell,
-                    { width: CELL_WIDTH * span, borderColor: colors.border },
-                    header && { backgroundColor: `${colors.border}66` },
-                  ]}
-                >
-                  <HeaderCellContext.Provider value={header}>
-                    <Blocks nodes={cell.content ?? []} />
-                  </HeaderCellContext.Provider>
-                </View>
-              );
-            })}
-          </View>
+          <TableRowView key={i} row={row} first={i === 0} />
         ))}
       </View>
     </ScrollView>
   );
+}
+
+function TableRowView({ row, first }: { row: PMNode; first: boolean }) {
+  const { colors } = useReader();
+  return (
+    <View style={[styles.tableRow, { borderColor: colors.border }, first && styles.tableRowFirst]}>
+      {(row.content ?? []).map((cell, j) => {
+        const span = numberAttr(cell, "colspan") ?? 1;
+        const header = cell.type === "th";
+        return (
+          <View
+            key={j}
+            style={[
+              styles.cell,
+              { width: CELL_WIDTH * span, borderColor: colors.border },
+              header && { backgroundColor: `${colors.border}66` },
+            ]}
+          >
+            <HeaderCellContext.Provider value={header}>
+              <Blocks nodes={cell.content ?? []} />
+            </HeaderCellContext.Provider>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function rowWidth(row: PMNode): number {
+  return (row.content ?? []).reduce((sum, cell) => sum + CELL_WIDTH * (numberAttr(cell, "colspan") ?? 1), 0);
 }
 
 function ReaderImage({ node }: { node: PMNode }) {
@@ -567,9 +698,6 @@ const styles = StyleSheet.create({
   blocks: {
     gap: 10,
   },
-  blockGap: {
-    height: 10,
-  },
   listFrame: {
     flex: 1,
   },
@@ -652,12 +780,15 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     marginVertical: 8,
   },
-  table: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderLeftWidth: StyleSheet.hairlineWidth,
-  },
   tableRow: {
     flexDirection: "row",
+    borderLeftWidth: StyleSheet.hairlineWidth,
+  },
+  tableRowFirst: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  splitTableFrame: {
+    overflow: "hidden",
   },
   cell: {
     padding: 8,
