@@ -1,12 +1,16 @@
 import { Image } from "expo-image";
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import {
+  FlatList,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  type RefreshControlProps,
+  type StyleProp,
   type TextStyle,
+  type ViewStyle,
 } from "react-native";
 
 import type { Colors } from "@/constants/colors";
@@ -34,7 +38,7 @@ const HeaderCellContext = createContext(false);
 function useReader(): ReaderContextValue {
   const value = useContext(ReaderContext);
   if (!value) {
-    throw new Error("Reader components must be inside DocumentBody");
+    throw new Error("Reader components must be inside DocumentList");
   }
   return value;
 }
@@ -70,12 +74,55 @@ function plainText(node: PMNode): string {
   return (node.content ?? []).map(plainText).join("");
 }
 
-export function DocumentBody({ doc, ...context }: { doc: PMNode } & ReaderContextValue) {
+/**
+ * A document as a virtualised list of its top-level blocks: only the blocks
+ * on or near the screen are drawn, so long documents open quickly on slower
+ * phones. `header` and `footer` scroll with the document.
+ */
+export function DocumentList({
+  blocks,
+  header,
+  footer,
+  refreshControl,
+  contentContainerStyle,
+  server,
+  accessToken,
+  colors,
+  openLink,
+  openDocument,
+}: {
+  blocks: PMNode[];
+  header?: ReactElement;
+  footer?: ReactElement | null;
+  refreshControl?: ReactElement<RefreshControlProps>;
+  contentContainerStyle?: StyleProp<ViewStyle>;
+} & ReaderContextValue) {
+  // A stable value, so scrolling new blocks in doesn't redraw the others.
+  const context = useMemo(
+    () => ({ server, accessToken, colors, openLink, openDocument }),
+    [server, accessToken, colors, openLink, openDocument],
+  );
   return (
     <ReaderContext.Provider value={context}>
-      <Blocks nodes={doc.content ?? []} />
+      <FlatList
+        data={blocks}
+        keyExtractor={(_, index) => String(index)}
+        renderItem={({ item }) => <Block node={item} />}
+        ItemSeparatorComponent={BlockGap}
+        ListHeaderComponent={header}
+        ListFooterComponent={footer}
+        refreshControl={refreshControl}
+        contentContainerStyle={contentContainerStyle}
+        initialNumToRender={12}
+        maxToRenderPerBatch={8}
+        windowSize={9}
+      />
     </ReaderContext.Provider>
   );
+}
+
+function BlockGap() {
+  return <View style={styles.blockGap} />;
 }
 
 function Blocks({ nodes }: { nodes: PMNode[] }) {
@@ -513,6 +560,9 @@ function LinkCard({
 const styles = StyleSheet.create({
   blocks: {
     gap: 10,
+  },
+  blockGap: {
+    height: 10,
   },
   paragraph: {
     fontSize: 16,

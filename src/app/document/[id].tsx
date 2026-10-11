@@ -1,10 +1,10 @@
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { useCallback, useMemo } from "react";
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { ItemIcon } from "@/components/item-icon";
-import { DocumentBody } from "@/components/reader/document-body";
+import { DocumentList } from "@/components/reader/document-body";
 import { refreshColors, useColors } from "@/constants/colors";
 import { OfflineNote } from "@/components/offline-note";
 import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
@@ -60,32 +60,30 @@ export default function DocumentScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Stack.Screen options={{ title: title || "Document" }} />
-      <ScrollView
+      <DocumentList
+        blocks={doc && session ? (doc.data.content ?? []) : []}
+        server={session?.server ?? ""}
+        accessToken={session?.accessToken ?? ""}
+        colors={colors}
+        openLink={openLink}
+        openDocument={openDocument}
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} {...refreshColors(colors)} />}
-      >
-        <View style={styles.titleRow}>
-          {doc?.icon ? <ItemIcon icon={doc.icon} color={doc.color} label={title} /> : null}
-          <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">
-            {title || "Untitled"}
-          </Text>
-        </View>
-        {updated ? <Text style={[styles.meta, { color: colors.muted }]}>{updated}</Text> : null}
-        <OfflineNote savedAt={offlineSince} />
-        {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
-        {loading ? (
-          <ActivityIndicator style={styles.loading} color={colors.text} />
-        ) : doc && session ? (
-          <DocumentBody
-            doc={doc.data}
-            server={session.server}
-            accessToken={session.accessToken}
-            colors={colors}
-            openLink={openLink}
-            openDocument={openDocument}
-          />
-        ) : null}
-      </ScrollView>
+        header={
+          <View style={styles.header}>
+            <View style={styles.titleRow}>
+              {doc?.icon ? <ItemIcon icon={doc.icon} color={doc.color} label={title} /> : null}
+              <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">
+                {title || "Untitled"}
+              </Text>
+            </View>
+            {updated ? <Text style={[styles.meta, { color: colors.muted }]}>{updated}</Text> : null}
+            <OfflineNote savedAt={offlineSince} />
+            {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
+          </View>
+        }
+        footer={loading ? <ActivityIndicator style={styles.loading} color={colors.text} /> : null}
+      />
     </View>
   );
 }
@@ -97,7 +95,10 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     paddingBottom: 48,
+  },
+  header: {
     gap: 6,
+    marginBottom: 6,
   },
   titleRow: {
     flexDirection: "row",
