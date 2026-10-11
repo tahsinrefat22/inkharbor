@@ -51,7 +51,12 @@ export function useCachedLoader<T>(load: () => Promise<T>, cache: CacheAdapter<T
         if (!isCurrent()) {
           return;
         }
-        setData(value);
+        // Usually the server sends back exactly what was saved. Keeping the
+        // saved object then skips re-rendering, which for a long document is
+        // a visible hitch right after it appears.
+        if (!saved || JSON.stringify(value) !== JSON.stringify(saved.value)) {
+          setData(value);
+        }
         setError(null);
         setOfflineSince(null);
         await cache.write(value).catch(() => {
