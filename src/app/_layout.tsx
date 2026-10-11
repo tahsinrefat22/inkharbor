@@ -7,8 +7,11 @@ import { useColorScheme } from "react-native";
 
 import { useColors } from "@/constants/colors";
 import { AuthProvider } from "@/lib/auth";
+import { applyThemePreference, loadThemePreference } from "@/lib/theme";
 
 SplashScreen.preventAutoHideAsync();
+// Before the first render, so a chosen theme doesn't flash the other one.
+applyThemePreference(loadThemePreference());
 
 export default function RootLayout() {
   // The code font ships with the app; see CODE_FONT in the reader.
