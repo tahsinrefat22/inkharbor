@@ -26,7 +26,6 @@ import type { PMNode } from "@/lib/outline/documents";
 
 export interface ReaderContextValue {
   server: string;
-  accessToken: string;
   colors: Colors;
   /** Opens a link: documents in the app, files via signed URLs, the rest in a browser. */
   openLink: (href: string) => void;
@@ -34,6 +33,23 @@ export interface ReaderContextValue {
 }
 
 const ReaderContext = createContext<ReaderContextValue | null>(null);
+
+/**
+ * The access token, kept out of ReaderContext: it's renewed every hour, and
+ * only images use it, so a renewal shouldn't redraw the whole document.
+ */
+const AccessTokenContext = createContext("");
+
+/**
+ * The token for an image's request, fixed when the image first appears so a
+ * renewal doesn't make it load again. Images that appear later get the
+ * current token.
+ */
+function useImageToken(): string {
+  const accessToken = useContext(AccessTokenContext);
+  const [token] = useState(accessToken);
+  return token;
+}
 
 /** True inside table header cells, whose text is bold. */
 const HeaderCellContext = createContext(false);
@@ -100,32 +116,34 @@ export function DocumentList({
   footer?: ReactElement | null;
   refreshControl?: ReactElement<RefreshControlProps>;
   contentContainerStyle?: StyleProp<ViewStyle>;
-} & ReaderContextValue) {
+} & ReaderContextValue & { accessToken: string }) {
   // A stable value, so scrolling new blocks in doesn't redraw the others.
   const context = useMemo(
-    () => ({ server, accessToken, colors, openLink, openDocument }),
-    [server, accessToken, colors, openLink, openDocument],
+    () => ({ server, colors, openLink, openDocument }),
+    [server, colors, openLink, openDocument],
   );
   const rows = useMemo(() => toRows(blocks), [blocks]);
   const { listProps, thumb } = useScrollThumb<Row>(colors);
   return (
     <ReaderContext.Provider value={context}>
-      <View style={styles.listFrame}>
-        <Animated.FlatList
-          {...listProps}
-          data={rows}
-          keyExtractor={(row) => row.key}
-          renderItem={({ item }) => <RowView row={item} />}
-          ListHeaderComponent={header}
-          ListFooterComponent={footer}
-          refreshControl={refreshControl}
-          contentContainerStyle={contentContainerStyle}
-          initialNumToRender={12}
-          maxToRenderPerBatch={8}
-          windowSize={9}
-        />
-        {thumb}
-      </View>
+      <AccessTokenContext.Provider value={accessToken}>
+        <View style={styles.listFrame}>
+          <Animated.FlatList
+            {...listProps}
+            data={rows}
+            keyExtractor={(row) => row.key}
+            renderItem={({ item }) => <RowView row={item} />}
+            ListHeaderComponent={header}
+            ListFooterComponent={footer}
+            refreshControl={refreshControl}
+            contentContainerStyle={contentContainerStyle}
+            initialNumToRender={12}
+            maxToRenderPerBatch={8}
+            windowSize={9}
+          />
+          {thumb}
+        </View>
+      </AccessTokenContext.Provider>
     </ReaderContext.Provider>
   );
 }
@@ -377,11 +395,13 @@ function InlineNode({ node }: { node: PMNode }) {
     case "br":
       return <Text>{"\n"}</Text>;
     case "emoji": {
-      // Outline stores the shortcode ("rocket"); custom workspace emoji are
-      // stored by id and aren't shown yet.
+      // Outline stores the shortcode ("rocket"), or the id of an emoji the
+      // workspace uploaded.
       const name = stringAttr(node, "data-name") ?? "";
-      const native = (emojiNames as Record<string, string>)[name];
-      return <Text>{native ?? (UUID.test(name) ? "" : `:${name}:`)}</Text>;
+      if (UUID.test(name)) {
+        return <CustomEmoji id={name} />;
+      }
+      return <Text>{(emojiNames as Record<string, string>)[name] ?? `:${name}:`}</Text>;
     }
     case "math_inline":
       return <Text style={[styles.codeInline, { backgroundColor: colors.codeBackground }]}>{plainText(node)}</Text>;
@@ -404,6 +424,23 @@ function InlineNode({ node }: { node: PMNode }) {
     default:
       return <Text>{plainText(node)}</Text>;
   }
+}
+
+/** An emoji the workspace uploaded, shown inline at text size. */
+function CustomEmoji({ id }: { id: string }) {
+  const { server } = useReader();
+  const accessToken = useImageToken();
+  return (
+    <Image
+      source={{
+        uri: `${server}/api/emojis.redirect?id=${id}`,
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }}
+      style={styles.customEmoji}
+      contentFit="contain"
+      accessibilityLabel="Emoji"
+    />
+  );
 }
 
 function MarkedText({ node }: { node: PMNode }) {
@@ -596,7 +633,8 @@ function rowWidth(row: PMNode): number {
 }
 
 function ReaderImage({ node }: { node: PMNode }) {
-  const { server, accessToken, colors } = useReader();
+  const { server, colors } = useReader();
+  const accessToken = useImageToken();
   const src = stringAttr(node, "src");
   const width = numberAttr(node, "width");
   const height = numberAttr(node, "height");
@@ -697,6 +735,10 @@ function LinkCard({
 const styles = StyleSheet.create({
   blocks: {
     gap: 10,
+  },
+  customEmoji: {
+    width: 20,
+    height: 20,
   },
   listFrame: {
     flex: 1,

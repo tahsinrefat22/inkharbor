@@ -1,6 +1,6 @@
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { ItemIcon } from "@/components/item-icon";
@@ -35,21 +35,29 @@ export default function DocumentScreen() {
     router.push({ pathname: "/document/[id]", params: { id: documentId } });
   }, []);
 
+  // Read at tap time, so the hourly token renewal doesn't give openLink a new
+  // identity (which would redraw the whole document).
+  const sessionRef = useRef(session);
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
   const openLink = useCallback(
     async (href: string) => {
-      if (!session) {
+      const current = sessionRef.current;
+      if (!current) {
         return;
       }
-      const documentId = documentIdFromLink(href, session.server);
+      const documentId = documentIdFromLink(href, current.server);
       if (documentId) {
         openDocument(documentId);
         return;
       }
       // Files on the Outline server need the token; open their signed URL instead.
-      const url = await resolveAttachmentUrl(href, session.server, session.accessToken);
+      const url = await resolveAttachmentUrl(href, current.server, current.accessToken);
       await WebBrowser.openBrowserAsync(url);
     },
-    [session, openDocument],
+    [openDocument],
   );
 
   const title = doc?.title ?? initialTitle ?? "";
