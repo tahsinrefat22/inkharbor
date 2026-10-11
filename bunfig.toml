@@ -1,0 +1,6 @@
+[install]
+# Don't install peer dependencies nobody asked for. expo-router's drawer
+# (unused) declares react-native-reanimated, -worklets and -gesture-handler as
+# peers; auto-installed, their native code was linked into the APK (~3 MB).
+# Anything the app really needs is listed in package.json.
+peer = false
