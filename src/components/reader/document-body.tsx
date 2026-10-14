@@ -29,6 +29,7 @@ import {
 import { useScrollThumb } from "@/components/reader/scroll-thumb";
 import type { Colors } from "@/constants/colors";
 import emojiNames from "@/lib/emoji-names.json";
+import { useTextScale } from "@/lib/text-size";
 import type { PMNode } from "@/lib/outline/documents";
 
 // Renders Outline's ProseMirror JSON with native components. Every node and
@@ -43,7 +44,13 @@ export interface ReaderContextValue {
   openDocument: (id: string) => void;
 }
 
-const ReaderContext = createContext<ReaderContextValue | null>(null);
+/** What reader components share: the props above, plus the text size setting. */
+type ReaderContextState = ReaderContextValue & {
+  /** Multiplies every text size (and table cell width); 1 is the default. */
+  scale: number;
+};
+
+const ReaderContext = createContext<ReaderContextState | null>(null);
 
 /**
  * The access token, kept out of ReaderContext: it's renewed every hour, and
@@ -65,7 +72,7 @@ function useImageToken(): string {
 /** True inside table header cells, whose text is bold. */
 const HeaderCellContext = createContext(false);
 
-function useReader(): ReaderContextValue {
+function useReader(): ReaderContextState {
   const value = useContext(ReaderContext);
   if (!value) {
     throw new Error("Reader components must be inside DocumentList");
@@ -163,11 +170,12 @@ export function DocumentList({
   contentContainerStyle?: StyleProp<ViewStyle>;
 } & ReaderContextValue & { accessToken: string }) {
   // A stable value, so scrolling new blocks in doesn't redraw the others.
+  const scale = useTextScale();
   const context = useMemo(
-    () => ({ server, colors, openLink, openDocument }),
-    [server, colors, openLink, openDocument],
+    () => ({ server, colors, openLink, openDocument, scale }),
+    [server, colors, openLink, openDocument, scale],
   );
-  const rows = useMemo(() => toRows(blocks), [blocks]);
+  const rows = useMemo(() => toRows(blocks, scale), [blocks, scale]);
   const { listProps, thumb } = useScrollThumb<Row>(colors);
   const listRef = useRef<FlatList<Row> | null>(null);
   const jumpAttempts = useRef(0);
@@ -252,7 +260,7 @@ type Row = { key: string; gap: number } & (
 
 const LIST_TYPES = new Set(["bullet_list", "ordered_list", "checkbox_list"]);
 
-function toRows(blocks: PMNode[]): Row[] {
+function toRows(blocks: PMNode[], scale: number): Row[] {
   const rows: Row[] = [];
   blocks.forEach((node, b) => {
     const gap = rows.length ? BLOCK_GAP : 0;
@@ -262,7 +270,7 @@ function toRows(blocks: PMNode[]): Row[] {
         rows.push({ key: `${b}.${index}`, gap: index ? LIST_ITEM_GAP : gap, kind: "listItem", list: node, item, index }),
       );
     } else if (node.type === "table" && items.length) {
-      const table = newTableScroll(Math.max(...items.map(rowWidth)) + StyleSheet.hairlineWidth);
+      const table = newTableScroll(Math.max(...items.map((row) => rowWidth(row, scale))) + StyleSheet.hairlineWidth);
       items.forEach((row, index) =>
         rows.push({ key: `${b}.${index}`, gap: index ? 0 : gap, kind: "tableRow", table, row, first: !index }),
       );
@@ -358,15 +366,21 @@ function Blocks({ nodes }: { nodes: PMNode[] }) {
 const headingSizes: Record<number, number> = { 1: 28, 2: 23, 3: 20, 4: 18, 5: 16, 6: 16 };
 
 function Block({ node }: { node: PMNode }) {
-  const { colors } = useReader();
+  const { colors, scale } = useReader();
   const children = node.content ?? [];
 
   switch (node.type) {
     case "paragraph":
-      return <Inline nodes={children} style={styles.paragraph} empty={<View style={styles.emptyLine} />} />;
+      return (
+        <Inline
+          nodes={children}
+          style={{ fontSize: 16 * scale, lineHeight: 24 * scale }}
+          empty={<View style={{ height: 8 * scale }} />}
+        />
+      );
     case "heading": {
       const level = numberAttr(node, "level") ?? 1;
-      const size = headingSizes[level] ?? 16;
+      const size = (headingSizes[level] ?? 16) * scale;
       return (
         <Inline
           nodes={children}
@@ -507,7 +521,7 @@ function InlineNode({ node }: { node: PMNode }) {
 
 /** An emoji the workspace uploaded, shown inline at text size. */
 function CustomEmoji({ id }: { id: string }) {
-  const { server } = useReader();
+  const { server, scale } = useReader();
   const accessToken = useImageToken();
   return (
     <Image
@@ -515,7 +529,7 @@ function CustomEmoji({ id }: { id: string }) {
         uri: `${server}/api/emojis.redirect?id=${id}`,
         headers: { Authorization: `Bearer ${accessToken}` },
       }}
-      style={styles.customEmoji}
+      style={{ width: 20 * scale, height: 20 * scale }}
       contentFit="contain"
       accessibilityLabel="Emoji"
     />
@@ -585,7 +599,7 @@ function List({ node }: { node: PMNode }) {
 }
 
 function ListItemView({ list, item, index }: { list: PMNode; item: PMNode; index: number }) {
-  const { colors } = useReader();
+  const { colors, scale } = useReader();
   let marker: string;
   let checked = false;
   if (list.type === "checkbox_list") {
@@ -599,7 +613,12 @@ function ListItemView({ list, item, index }: { list: PMNode; item: PMNode; index
   return (
     <View style={styles.listItem}>
       <Text
-        style={[styles.marker, { color: colors.muted }, list.type === "checkbox_list" && styles.checkbox]}
+        style={[
+          styles.marker,
+          markerSize(scale),
+          { color: colors.muted },
+          list.type === "checkbox_list" && { fontSize: 18 * scale },
+        ]}
         accessibilityLabel={list.type === "checkbox_list" ? (checked ? "Done" : "Not done") : undefined}
       >
         {marker}
@@ -612,12 +631,15 @@ function ListItemView({ list, item, index }: { list: PMNode; item: PMNode; index
 }
 
 function CodeBlock({ code, language }: { code: string; language?: string }) {
-  const { colors } = useReader();
+  const { colors, scale } = useReader();
   return (
     <View style={[styles.code, { backgroundColor: colors.codeBackground, borderColor: colors.border }]}>
-      {language ? <Text style={[styles.codeLanguage, { color: colors.muted }]}>{language}</Text> : null}
+      {language ? <Text style={[styles.codeLanguage, { color: colors.muted, fontSize: 11 * scale }]}>{language}</Text> : null}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <Text style={[styles.codeText, { color: colors.codeText }]} selectable>
+        <Text
+          style={[styles.codeText, { color: colors.codeText, fontSize: 13 * scale, lineHeight: 20 * scale }]}
+          selectable
+        >
           {code}
         </Text>
       </ScrollView>
@@ -643,7 +665,7 @@ function Notice({ style, nodes }: { style?: string; nodes: PMNode[] }) {
 
 /** A collapsible block: the first child is the summary, the rest is hidden. */
 function Toggle({ nodes }: { nodes: PMNode[] }) {
-  const { colors } = useReader();
+  const { colors, scale } = useReader();
   const [open, setOpen] = useState(false);
   const [summary, ...body] = nodes;
   return (
@@ -654,11 +676,11 @@ function Toggle({ nodes }: { nodes: PMNode[] }) {
         onPress={() => setOpen((value) => !value)}
         style={styles.toggleSummary}
       >
-        <Text style={[styles.marker, { color: colors.muted }]}>{open ? "▾" : "▸"}</Text>
+        <Text style={[styles.marker, markerSize(scale), { color: colors.muted }]}>{open ? "▾" : "▸"}</Text>
         <View style={styles.listBody}>{summary ? <Block node={summary} /> : null}</View>
       </Pressable>
       {open ? (
-        <View style={styles.toggleBody}>
+        <View style={[styles.toggleBody, { paddingLeft: 8 + 22 * scale }]}>
           <Blocks nodes={body} />
         </View>
       ) : null}
@@ -682,7 +704,7 @@ function Table({ node }: { node: PMNode }) {
 }
 
 function TableRowView({ row, first }: { row: PMNode; first: boolean }) {
-  const { colors } = useReader();
+  const { colors, scale } = useReader();
   return (
     <View style={[styles.tableRow, { borderColor: colors.border }, first && styles.tableRowFirst]}>
       {(row.content ?? []).map((cell, j) => {
@@ -693,7 +715,7 @@ function TableRowView({ row, first }: { row: PMNode; first: boolean }) {
             key={j}
             style={[
               styles.cell,
-              { width: CELL_WIDTH * span, borderColor: colors.border },
+              { width: CELL_WIDTH * scale * span, borderColor: colors.border },
               header && { backgroundColor: `${colors.border}66` },
             ]}
           >
@@ -707,8 +729,11 @@ function TableRowView({ row, first }: { row: PMNode; first: boolean }) {
   );
 }
 
-function rowWidth(row: PMNode): number {
-  return (row.content ?? []).reduce((sum, cell) => sum + CELL_WIDTH * (numberAttr(cell, "colspan") ?? 1), 0);
+function rowWidth(row: PMNode, scale: number): number {
+  return (row.content ?? []).reduce(
+    (sum, cell) => sum + CELL_WIDTH * scale * (numberAttr(cell, "colspan") ?? 1),
+    0,
+  );
 }
 
 function ReaderImage({ node }: { node: PMNode }) {
@@ -788,7 +813,7 @@ function LinkCard({
   subtitle?: string;
   href?: string;
 }) {
-  const { colors, openLink } = useReader();
+  const { colors, openLink, scale } = useReader();
   return (
     <Pressable
       accessibilityRole="link"
@@ -796,13 +821,13 @@ function LinkCard({
       onPress={href ? () => openLink(href) : undefined}
       style={({ pressed }) => [styles.card, { borderColor: colors.border }, pressed && { opacity: 0.6 }]}
     >
-      <Text style={styles.cardIcon}>{icon}</Text>
+      <Text style={{ fontSize: 20 * scale }}>{icon}</Text>
       <View style={styles.listBody}>
-        <Text style={{ color: colors.text, fontWeight: "500" }} numberOfLines={1}>
+        <Text style={{ color: colors.text, fontWeight: "500", fontSize: 14 * scale }} numberOfLines={1}>
           {title}
         </Text>
         {subtitle ? (
-          <Text style={{ color: colors.muted, fontSize: 13 }} numberOfLines={1}>
+          <Text style={{ color: colors.muted, fontSize: 13 * scale }} numberOfLines={1}>
             {subtitle}
           </Text>
         ) : null}
@@ -811,26 +836,20 @@ function LinkCard({
   );
 }
 
+/** List and toggle markers: as tall as a line of text, and wide enough for "10.". */
+function markerSize(scale: number): TextStyle {
+  return { width: 22 * scale, fontSize: 16 * scale, lineHeight: 24 * scale };
+}
+
 const styles = StyleSheet.create({
   blocks: {
     gap: 10,
   },
-  customEmoji: {
-    width: 20,
-    height: 20,
-  },
   listFrame: {
     flex: 1,
   },
-  paragraph: {
-    fontSize: 16,
-    lineHeight: 24,
-  },
   bold: {
     fontWeight: "700",
-  },
-  emptyLine: {
-    height: 8,
   },
   heading: {
     fontWeight: "700",
@@ -844,13 +863,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   marker: {
-    width: 22,
-    fontSize: 16,
-    lineHeight: 24,
     textAlign: "right",
-  },
-  checkbox: {
-    fontSize: 18,
   },
   listBody: {
     flex: 1,
@@ -870,13 +883,10 @@ const styles = StyleSheet.create({
   },
   codeLanguage: {
     fontFamily: CODE_FONT,
-    fontSize: 11,
     textTransform: "uppercase",
   },
   codeText: {
     fontFamily: CODE_FONT,
-    fontSize: 13,
-    lineHeight: 20,
   },
   codeInline: {
     fontFamily: CODE_FONT,
@@ -894,7 +904,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   toggleBody: {
-    paddingLeft: 30,
     marginTop: 8,
   },
   rule: {
@@ -927,8 +936,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 10,
     padding: 12,
-  },
-  cardIcon: {
-    fontSize: 20,
   },
 });

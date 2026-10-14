@@ -13,6 +13,7 @@ import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
 import { readDocument, writeDocument } from "@/lib/cache";
 import { useAuth } from "@/lib/auth";
 import { useStars } from "@/lib/stars";
+import { useTextScale } from "@/lib/text-size";
 import {
   documentIdFromLink,
   getDocument,
@@ -41,6 +42,7 @@ export default function DocumentScreen() {
   }, [reloadContent, reloadStars]);
 
   const listRef = useRef<DocumentListHandle>(null);
+  const scale = useTextScale();
   const headings = useMemo(() => documentHeadings(doc?.data.content ?? []), [doc]);
 
   const openDocument = useCallback((documentId: string) => {
@@ -110,11 +112,16 @@ export default function DocumentScreen() {
           <View style={styles.header}>
             <View style={styles.titleRow}>
               {doc?.icon ? <ItemIcon icon={doc.icon} color={doc.color} label={title} /> : null}
-              <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">
+              <Text
+                style={[styles.title, { color: colors.text, fontSize: 28 * scale }]}
+                accessibilityRole="header"
+              >
                 {title || "Untitled"}
               </Text>
             </View>
-            {updated ? <Text style={[styles.meta, { color: colors.muted }]}>{updated}</Text> : null}
+            {updated ? (
+              <Text style={[styles.meta, { color: colors.muted, fontSize: 13 * scale }]}>{updated}</Text>
+            ) : null}
             <OfflineNote savedAt={offlineSince} />
             {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
           </View>
@@ -149,11 +156,9 @@ const styles = StyleSheet.create({
   },
   title: {
     flex: 1,
-    fontSize: 28,
     fontWeight: "700",
   },
   meta: {
-    fontSize: 13,
     marginBottom: 12,
   },
   loading: {

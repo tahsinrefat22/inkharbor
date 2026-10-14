@@ -5,6 +5,7 @@ import { Animated, Easing, Modal, Pressable, StyleSheet, Text, useWindowDimensio
 import { Avatar } from "@/components/avatar";
 import { useColors } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
+import { saveTextScale, TEXT_SIZES, useTextScale } from "@/lib/text-size";
 import { loadThemePreference, saveThemePreference, type ThemePreference } from "@/lib/theme";
 
 /** The header avatar. Tapping it opens a card with the account and actions. */
@@ -125,6 +126,7 @@ export function AccountMenu() {
               <Text style={{ color: colors.text }} numberOfLines={1}>{server.replace(/^https?:\/\//, "")}</Text>
             </View>
             <ThemePicker />
+            <TextSizePicker />
             <MenuItem label="Settings" color={colors.text} onPress={handleSettings} />
             <MenuItem label="Sign out" color={colors.danger} onPress={handleSignOut} />
           </Animated.View>
@@ -165,6 +167,41 @@ function ThemePicker() {
             >
               <Text style={[styles.segmentText, { color: selected ? colors.onPrimary : colors.text }]}>
                 {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+/** Reader text size: five steps, each shown as an "A" of growing size. */
+function TextSizePicker() {
+  const colors = useColors();
+  const scale = useTextScale();
+  return (
+    <View style={styles.theme}>
+      <Text style={[styles.label, { color: colors.muted }]}>Text size</Text>
+      <View style={[styles.segments, { borderColor: colors.border }]} accessibilityRole="radiogroup">
+        {TEXT_SIZES.map((size) => {
+          const selected = size.scale === scale;
+          return (
+            <Pressable
+              key={size.label}
+              accessibilityRole="radio"
+              accessibilityLabel={size.label}
+              accessibilityState={{ checked: selected }}
+              onPress={() => saveTextScale(size.scale)}
+              style={[styles.segment, styles.sizeSegment, selected && { backgroundColor: colors.primary }]}
+            >
+              <Text
+                style={[
+                  styles.sizeLetter,
+                  { color: selected ? colors.onPrimary : colors.text, fontSize: 14 * size.scale },
+                ]}
+              >
+                A
               </Text>
             </Pressable>
           );
@@ -239,6 +276,14 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 8,
     padding: 2,
+  },
+  sizeSegment: {
+    justifyContent: "flex-end",
+    height: 34,
+    paddingVertical: 6,
+  },
+  sizeLetter: {
+    fontWeight: "600",
   },
   segment: {
     flex: 1,
