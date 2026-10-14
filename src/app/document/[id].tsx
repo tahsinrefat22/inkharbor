@@ -5,6 +5,7 @@ import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from "react
 
 import { ItemIcon } from "@/components/item-icon";
 import { ContentsButton } from "@/components/reader/contents-button";
+import { DocumentMenu } from "@/components/reader/document-menu";
 import { DocumentList, documentHeadings, type DocumentListHandle } from "@/components/reader/document-body";
 import { StarButton } from "@/components/star-button";
 import { refreshColors, useColors } from "@/constants/colors";
@@ -94,6 +95,7 @@ export default function DocumentScreen() {
                 target={doc ? { documentId: doc.id } : null}
                 document={doc ? toSummary(doc) : undefined}
               />
+              <DocumentMenu webUrl={doc && session ? `${session.server}${doc.url}` : null} />
             </View>
           ),
         }}

@@ -1,4 +1,5 @@
 import Storage from "expo-sqlite/kv-store";
+import { useSyncExternalStore } from "react";
 import { Appearance } from "react-native";
 
 // The light / dark / system choice from the account menu. It's a device
@@ -22,11 +23,30 @@ export function applyThemePreference(preference: ThemePreference): void {
   Appearance.setColorScheme(preference === "system" ? "unspecified" : preference);
 }
 
+let current: ThemePreference | null = null;
+const listeners = new Set<() => void>();
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/** The chosen theme, shared by every picker so they always agree. */
+export function useThemePreference(): ThemePreference {
+  return useSyncExternalStore(subscribe, () => (current ??= loadThemePreference()));
+}
+
 export function saveThemePreference(preference: ThemePreference): void {
+  current = preference;
   applyThemePreference(preference);
   try {
     Storage.setItemSync(KEY, preference);
   } catch {
     // Applied for this session even if it couldn't be saved.
+  }
+  for (const listener of listeners) {
+    listener();
   }
 }
