@@ -75,7 +75,8 @@ export async function getDocument(request: Request, id: string): Promise<Outline
 /**
  * Returns the urlId if the link points at an Outline document on this server,
  * e.g. /doc/deployment-checklist-WWQrEySkiz or https://server/doc/…, so the
- * app can open it itself instead of in a browser.
+ * app can open it itself instead of in a browser. Links from a shared page
+ * (/s/<share>/doc/…) count too: members can open the document itself.
  */
 export function documentIdFromLink(href: string, server: string): string | null {
   let path = href;
@@ -84,7 +85,7 @@ export function documentIdFromLink(href: string, server: string): string | null 
   } else if (!href.startsWith("/")) {
     return null;
   }
-  const match = path.match(/^\/doc\/(?:[^/?#]*-)?([A-Za-z0-9]{10})(?:[/?#]|$)/);
+  const match = path.match(/^(?:\/s\/[^/?#]+)?\/doc\/(?:[^/?#]*-)?([A-Za-z0-9]{10})(?:[/?#]|$)/);
   return match ? match[1] : null;
 }
 

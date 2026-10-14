@@ -1,5 +1,5 @@
 import * as LocalAuthentication from "expo-local-authentication";
-import { Stack } from "expo-router";
+import { router, Stack } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TextInput, View } from "react-native";
 
@@ -8,6 +8,7 @@ import { Button } from "@/components/button";
 import { HomeList } from "@/components/home-list";
 import { useColors, type Colors } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
+import { takePendingLink } from "@/lib/shared-link";
 
 export default function Index() {
   const colors = useColors();
@@ -105,6 +106,15 @@ function Locked({ colors }: { colors: Colors }) {
 /** Signed in: search, starred and recent documents, and the collections. */
 function Home({ colors }: { colors: Colors }) {
   const { session } = useAuth();
+
+  // A link shared to the app while it was locked or not connected.
+  useEffect(() => {
+    const link = takePendingLink();
+    if (link) {
+      router.push({ pathname: "/shared", params: { url: link } });
+    }
+  }, []);
+
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
       <Stack.Screen

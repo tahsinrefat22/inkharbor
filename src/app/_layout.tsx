@@ -11,6 +11,12 @@ import { AuthProvider } from "@/lib/auth";
 import { StarsProvider } from "@/lib/stars";
 import { applyThemePreference, loadThemePreference } from "@/lib/theme";
 
+// A screen opened from outside the app (a shared link, the sign-in
+// redirect) gets the home screen below it, so Back goes home.
+export const unstable_settings = {
+  anchor: "index",
+};
+
 SplashScreen.preventAutoHideAsync();
 // The phone's own setting, which the native splash screen follows; read
 // before the app's chosen theme overrides it.
