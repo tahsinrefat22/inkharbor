@@ -2,11 +2,11 @@
 
 An unofficial, open-source Android app for reading [Outline](https://www.getoutline.com) on your phone, mainly for self-hosted instances. It isn't affiliated with General Outline. Outline plans its own mobile app at some point; until then, this fills the gap.
 
-Status: v0.1 is a pre-release. It's for reading: sign in to your server, browse collections and documents, search, and keep starred and recent documents available offline. No editing yet. Android only for now; iOS comes later.
+Status: early, at v0.2. It's for reading: sign in to your server, browse collections and documents, search, and keep starred and recent documents available offline. No editing yet. Android only for now; iOS comes later.
 
 ## Requirements
 
-- **Outline newer than 1.10.1.** The app signs in with a custom-scheme redirect (`inkharbor://oauth`), which Outline accepts since [outline/outline#13945](https://github.com/outline/outline/pull/13945). That change is merged and ships in the first release after 1.10.1. Until that release is out, it works with Outline built from `main`. On 1.10.1 and older, the server refuses the sign-in.
+- **Outline 1.11.0 or newer.** The app signs in with a custom-scheme redirect (`inkharbor://oauth`), which Outline accepts since [outline/outline#13945](https://github.com/outline/outline/pull/13945), first released in 1.11.0. On 1.10.1 and older, the server refuses the sign-in.
 - Android 7.0 or newer on a 64-bit ARM phone, which covers practically every phone from the last several years.
 
 Nothing needs to be set up on the server: the app registers itself as an OAuth client the first time it connects.
