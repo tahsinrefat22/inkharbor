@@ -12,6 +12,7 @@ import { OfflineNote } from "@/components/offline-note";
 import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
 import { readDocument, writeDocument } from "@/lib/cache";
 import { useAuth } from "@/lib/auth";
+import { useStars } from "@/lib/stars";
 import {
   documentIdFromLink,
   getDocument,
@@ -32,7 +33,12 @@ export default function DocumentScreen() {
     }),
     [id],
   );
-  const { data: doc, error, loading, refreshing, offlineSince, reload } = useCachedLoader(load, cache);
+  const { data: doc, error, loading, refreshing, offlineSince, reload: reloadContent } = useCachedLoader(load, cache);
+  // Refreshing also catches stars changed elsewhere, e.g. on the web.
+  const { reload: reloadStars } = useStars();
+  const reload = useCallback(async () => {
+    await Promise.all([reloadContent(), reloadStars()]);
+  }, [reloadContent, reloadStars]);
 
   const listRef = useRef<DocumentListHandle>(null);
   const headings = useMemo(() => documentHeadings(doc?.data.content ?? []), [doc]);

@@ -16,6 +16,7 @@ import {
 } from "react-native";
 
 import { ItemIcon } from "@/components/item-icon";
+import { OfflineMark } from "@/components/offline-mark";
 import { SearchResultRow } from "@/components/search-result-row";
 import { TabPager } from "@/components/tab-pager";
 import { refreshColors, useColors } from "@/constants/colors";
@@ -23,6 +24,7 @@ import { useDocumentSearch } from "@/hooks/use-document-search";
 import { OfflineNote } from "@/components/offline-note";
 import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
 import { useRecentDocuments } from "@/hooks/use-recent-documents";
+import { useSavedDocuments } from "@/hooks/use-saved-documents";
 import { readEntry, writeEntry } from "@/lib/cache";
 import { useAuth } from "@/lib/auth";
 import { emojiIcon, listCollections, type Collection } from "@/lib/outline/collections";
@@ -84,6 +86,7 @@ export function HomeList() {
   const collections = useCachedLoader(load, collectionsCache);
   const stars = useStars();
   const recent = useRecentDocuments();
+  const saved = useSavedDocuments();
   const [query, setQuery] = useState("");
   const search = useDocumentSearch(query);
   const searching = query.trim() !== "";
@@ -175,6 +178,7 @@ export function HomeList() {
         renderItem={({ item }) => (
           <HomeRow
             item={item}
+            offline={item.kind === "document" && saved.has(item.document.id)}
             collectionName={
               item.kind === "document" && item.document.collectionId
                 ? collectionNames[item.document.collectionId]
@@ -241,6 +245,7 @@ export function HomeList() {
           renderItem={({ item }) => (
             <SearchResultRow
               result={item}
+              offline={saved.has(item.document.id)}
               collectionName={
                 item.document.collectionId ? collectionNames[item.document.collectionId] : undefined
               }
@@ -263,7 +268,7 @@ export function HomeList() {
 }
 
 /** A document or collection on the home screen. */
-function HomeRow({ item, collectionName }: { item: Item; collectionName?: string }) {
+function HomeRow({ item, collectionName, offline }: { item: Item; collectionName?: string; offline: boolean }) {
   const colors = useColors();
   const { title, icon, color } =
     item.kind === "document"
@@ -301,6 +306,7 @@ function HomeRow({ item, collectionName }: { item: Item; collectionName?: string
           </Text>
         ) : null}
       </View>
+      {offline ? <OfflineMark /> : null}
     </Pressable>
   );
 }

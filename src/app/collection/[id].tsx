@@ -4,11 +4,14 @@ import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Tex
 
 import { ItemIcon } from "@/components/item-icon";
 import { refreshColors, useColors } from "@/constants/colors";
+import { OfflineMark } from "@/components/offline-mark";
 import { OfflineNote } from "@/components/offline-note";
 import { StarButton } from "@/components/star-button";
 import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
+import { useSavedDocuments } from "@/hooks/use-saved-documents";
 import { readEntry, writeEntry } from "@/lib/cache";
 import { useAuth } from "@/lib/auth";
+import { useStars } from "@/lib/stars";
 import { getDocumentTree, type DocumentNode } from "@/lib/outline/collections";
 
 interface Row {
@@ -36,8 +39,14 @@ export default function CollectionScreen() {
     }),
     [id],
   );
-  const { data, error, loading, refreshing, offlineSince, reload } = useCachedLoader(load, cache);
+  const { data, error, loading, refreshing, offlineSince, reload: reloadContent } = useCachedLoader(load, cache);
+  // Refreshing also catches stars changed elsewhere, e.g. on the web.
+  const { reload: reloadStars } = useStars();
+  const reload = useCallback(async () => {
+    await Promise.all([reloadContent(), reloadStars()]);
+  }, [reloadContent, reloadStars]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const saved = useSavedDocuments();
 
   const rows = useMemo(() => visibleRows(data ?? [], expanded), [data, expanded]);
 
@@ -106,6 +115,7 @@ export default function CollectionScreen() {
                   <Text style={[styles.titleText, { color: colors.text }]} numberOfLines={2}>
                     {node.title || "Untitled"}
                   </Text>
+                  {saved.has(node.id) ? <OfflineMark /> : null}
                 </Pressable>
               </View>
             );

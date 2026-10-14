@@ -20,6 +20,22 @@ export interface Cached<T> {
 
 let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
+/** Called whenever documents are saved or removed, e.g. to update offline markers. */
+const documentListeners = new Set<() => void>();
+
+export function subscribeToSavedDocuments(listener: () => void): () => void {
+  documentListeners.add(listener);
+  return () => {
+    documentListeners.delete(listener);
+  };
+}
+
+function documentsChanged(): void {
+  for (const listener of documentListeners) {
+    listener();
+  }
+}
+
 function database(): Promise<SQLite.SQLiteDatabase> {
   databasePromise ??= (async () => {
     const db = await SQLite.openDatabaseAsync(DATABASE_NAME);
@@ -121,6 +137,7 @@ export async function writeDocument(
     starred === undefined ? null : 1,
   );
   await pruneDocuments(db);
+  documentsChanged();
 }
 
 /** A document opened in this app, with when it was last opened. */
@@ -163,6 +180,13 @@ export async function recentlyOpened(limit: number): Promise<OpenedDocument[]> {
   }));
 }
 
+/** The ids of all documents saved on the device. */
+export async function savedDocumentIds(): Promise<Set<string>> {
+  const db = await database();
+  const rows = await db.getAllAsync<{ id: string }>("SELECT id FROM documents");
+  return new Set(rows.map((row) => row.id));
+}
+
 /** When each saved document was last updated on the server, by id. */
 export async function savedUpdatedAt(ids: string[]): Promise<Map<string, string>> {
   if (!ids.length) {
@@ -186,6 +210,7 @@ export async function setStarredDocuments(ids: string[]): Promise<void> {
     }
   });
   await pruneDocuments(db);
+  documentsChanged();
 }
 
 /** Keeps starred documents and the most recently opened others. */
@@ -203,4 +228,5 @@ async function pruneDocuments(db: SQLite.SQLiteDatabase): Promise<void> {
 export async function clearCache(): Promise<void> {
   const db = await database();
   await db.execAsync("DELETE FROM entries; DELETE FROM documents;");
+  documentsChanged();
 }

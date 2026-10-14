@@ -2,11 +2,21 @@ import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ItemIcon } from "@/components/item-icon";
+import { OfflineMark } from "@/components/offline-mark";
 import { useColors } from "@/constants/colors";
 import { snippetParts, type SearchResult } from "@/lib/outline/documents";
 
 /** One search result: title, collection and a snippet with the matches in bold. */
-export function SearchResultRow({ result, collectionName }: { result: SearchResult; collectionName?: string }) {
+export function SearchResultRow({
+  result,
+  collectionName,
+  offline = false,
+}: {
+  result: SearchResult;
+  collectionName?: string;
+  /** Whether the document is saved on the phone. */
+  offline?: boolean;
+}) {
   const colors = useColors();
   const { document } = result;
   return (
@@ -22,6 +32,7 @@ export function SearchResultRow({ result, collectionName }: { result: SearchResu
         <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
           {document.title || "Untitled"}
         </Text>
+        {offline ? <OfflineMark /> : null}
       </View>
       {collectionName ? (
         <Text style={[styles.collection, { color: colors.muted }]} numberOfLines={1}>
