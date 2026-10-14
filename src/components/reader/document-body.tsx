@@ -1,5 +1,15 @@
 import { Image } from "expo-image";
-import { createContext, useContext, useMemo, useState, type ReactElement, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+  type Ref,
+} from "react";
 import {
   Animated,
   PanResponder,
@@ -8,6 +18,7 @@ import {
   StyleSheet,
   Text,
   View,
+  type FlatList,
   type PanResponderInstance,
   type RefreshControlProps,
   type StyleProp,
@@ -93,6 +104,38 @@ function plainText(node: PMNode): string {
   return (node.content ?? []).map(plainText).join("");
 }
 
+/** A heading at the top level of a document, for its table of contents. */
+export interface DocumentHeading {
+  /** The heading's position among the document's top-level blocks. */
+  block: number;
+  level: number;
+  title: string;
+}
+
+/**
+ * The document's headings, in order. Headings inside toggles, notices and
+ * other blocks are left out: they can't be jumped to while folded away.
+ */
+export function documentHeadings(blocks: PMNode[]): DocumentHeading[] {
+  return blocks.flatMap((node, block) => {
+    if (node.type !== "heading") {
+      return [];
+    }
+    const title = plainText(node).trim();
+    return title ? [{ block, level: numberAttr(node, "level") ?? 1, title }] : [];
+  });
+}
+
+export interface DocumentListHandle {
+  /** Jumps to a top-level block, e.g. a heading from documentHeadings(). */
+  scrollToBlock: (block: number) => void;
+}
+
+/** Space left above a heading the reader jumped to. */
+const JUMP_MARGIN = 8;
+/** Tries to reach a block that isn't drawn yet before giving up. */
+const JUMP_ATTEMPTS = 5;
+
 /**
  * A document as a virtualised list: only what's on or near the screen is
  * drawn, so long documents open quickly on slower phones. Top-level lists
@@ -110,7 +153,9 @@ export function DocumentList({
   colors,
   openLink,
   openDocument,
+  ref,
 }: {
+  ref?: Ref<DocumentListHandle>;
   blocks: PMNode[];
   header?: ReactElement;
   footer?: ReactElement | null;
@@ -124,12 +169,46 @@ export function DocumentList({
   );
   const rows = useMemo(() => toRows(blocks), [blocks]);
   const { listProps, thumb } = useScrollThumb<Row>(colors);
+  const listRef = useRef<FlatList<Row> | null>(null);
+  const jumpAttempts = useRef(0);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToBlock: (block) => {
+        const index = rows.findIndex((row) => row.key === `${block}`);
+        if (index !== -1) {
+          jumpAttempts.current = 0;
+          listRef.current?.scrollToIndex({ index, animated: false, viewOffset: JUMP_MARGIN });
+        }
+      },
+    }),
+    [rows],
+  );
+
+  // Rows far away aren't drawn yet, so the list can't know where they are.
+  // Scroll to an estimate first, which draws that part, then jump exactly.
+  function handleJumpFailed(info: { index: number; averageItemLength: number }) {
+    if (jumpAttempts.current++ >= JUMP_ATTEMPTS) {
+      return;
+    }
+    listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+    setTimeout(() => {
+      listRef.current?.scrollToIndex({ index: info.index, animated: false, viewOffset: JUMP_MARGIN });
+    }, 50);
+  }
+
   return (
     <ReaderContext.Provider value={context}>
       <AccessTokenContext.Provider value={accessToken}>
         <View style={styles.listFrame}>
           <Animated.FlatList
             {...listProps}
+            ref={(list: FlatList<Row> | null) => {
+              listProps.ref(list);
+              listRef.current = list;
+            }}
+            onScrollToIndexFailed={handleJumpFailed}
             data={rows}
             keyExtractor={(row) => row.key}
             renderItem={({ item }) => <RowView row={item} />}

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { ItemIcon } from "@/components/item-icon";
-import { DocumentList } from "@/components/reader/document-body";
+import { ContentsButton } from "@/components/reader/contents-button";
+import { DocumentList, documentHeadings, type DocumentListHandle } from "@/components/reader/document-body";
 import { StarButton } from "@/components/star-button";
 import { refreshColors, useColors } from "@/constants/colors";
 import { OfflineNote } from "@/components/offline-note";
@@ -32,6 +33,9 @@ export default function DocumentScreen() {
     [id],
   );
   const { data: doc, error, loading, refreshing, offlineSince, reload } = useCachedLoader(load, cache);
+
+  const listRef = useRef<DocumentListHandle>(null);
+  const headings = useMemo(() => documentHeadings(doc?.data.content ?? []), [doc]);
 
   const openDocument = useCallback((documentId: string) => {
     router.push({ pathname: "/document/[id]", params: { id: documentId } });
@@ -73,14 +77,21 @@ export default function DocumentScreen() {
         options={{
           title: title || "Document",
           headerRight: () => (
-            <StarButton
-              target={doc ? { documentId: doc.id } : null}
-              document={doc ? toSummary(doc) : undefined}
-            />
+            <View style={styles.headerActions}>
+              <ContentsButton
+                headings={headings}
+                onSelect={(heading) => listRef.current?.scrollToBlock(heading.block)}
+              />
+              <StarButton
+                target={doc ? { documentId: doc.id } : null}
+                document={doc ? toSummary(doc) : undefined}
+              />
+            </View>
           ),
         }}
       />
       <DocumentList
+        ref={listRef}
         blocks={doc && session ? (doc.data.content ?? []) : []}
         server={session?.server ?? ""}
         accessToken={session?.accessToken ?? ""}
@@ -111,6 +122,11 @@ export default function DocumentScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
   },
   content: {
     padding: 20,
