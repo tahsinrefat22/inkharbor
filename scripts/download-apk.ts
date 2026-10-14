@@ -20,7 +20,7 @@ interface Build {
 }
 
 function eas(args: string[]): unknown {
-  const out = execFileSync("bunx", ["eas-cli", ...args, "--json", "--non-interactive"], {
+  const out = execFileSync("bunx", ["eas-cli", ...args, "--json"], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "inherit"],
   });
@@ -30,7 +30,21 @@ function eas(args: string[]): unknown {
 const buildId = process.argv[2];
 const build = buildId
   ? (eas(["build:view", buildId]) as Build)
-  : (eas(["build:list", "--platform", "android", "--build-profile", "preview", "--status", "finished", "--limit", "1"]) as Build[])[0];
+  : (
+      eas([
+        "build:list",
+        "--platform",
+        "android",
+        "--build-profile",
+        "preview",
+        "--status",
+        "finished",
+        "--limit",
+        "1",
+        // build:list asks questions without this; build:view doesn't accept it.
+        "--non-interactive",
+      ]) as Build[]
+    )[0];
 
 const url = build?.artifacts?.applicationArchiveUrl;
 if (!build || build.status !== "FINISHED" || !url) {
