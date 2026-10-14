@@ -2,7 +2,7 @@
 
 An unofficial, open-source Android app for reading [Outline](https://www.getoutline.com) on your phone, mainly for self-hosted instances. It isn't affiliated with General Outline. Outline plans its own mobile app at some point; until then, this fills the gap.
 
-Status: early, at v0.3. It's for reading: sign in to your server, browse collections and documents, search, and keep starred and recent documents available offline. No editing yet. Android only for now; iOS comes later.
+Status: early, at v0.4. It's for reading: sign in to your server, browse collections and documents, search, and keep starred and recent documents available offline. No editing yet. Android only for now; iOS comes later.
 
 ## Requirements
 
