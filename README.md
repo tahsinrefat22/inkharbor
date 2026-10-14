@@ -2,7 +2,7 @@
 
 An unofficial, open-source Android app for reading [Outline](https://www.getoutline.com) on your phone, mainly for self-hosted instances. It isn't affiliated with General Outline. Outline plans its own mobile app at some point; until then, this fills the gap.
 
-Status: early, at v0.2. It's for reading: sign in to your server, browse collections and documents, search, and keep starred and recent documents available offline. No editing yet. Android only for now; iOS comes later.
+Status: early, at v0.3. It's for reading: sign in to your server, browse collections and documents, search, and keep starred and recent documents available offline. No editing yet. Android only for now; iOS comes later.
 
 ## Requirements
 
@@ -24,9 +24,9 @@ Updates install the same way, over the existing app, and keep you signed in.
 - Shows your collections and their document trees, and opens documents in a native reader. The reader handles everything Outline's editor can produce: headings, lists and checklists, tables, code, notices, toggles, images, attachments, videos, embeds, mentions and emoji (including your workspace's own). Attachments, videos and embeds open in the browser, and maths shows as its source for now.
 - The home screen has three tabs: Collections, Recent and Starred. Recent combines what you viewed in Outline's web or desktop app with what you opened in Inkharbor, since Outline doesn't record views from other apps. The star in a document's or collection's header stars or unstars it, the same stars as on the web.
 - Searches all documents from the box on the home screen. Results replace the collections while you type; clearing the box brings them back.
-- Works offline. The collection list, document trees, the 50 most recently opened documents and every starred document are kept on the phone. Starred documents are downloaded in the background, so they're there even if you've never opened them on the phone.
-- Long documents stay fast: only what's on screen is drawn, including inside huge tables and lists, and a scroll handle on the right lets you jump anywhere.
-- Light, dark or system theme, from the avatar menu.
+- Works offline. The collection list, document trees, the 50 most recently opened documents and every starred document are kept on the phone, and lists mark the documents that are. Starred documents are downloaded in the background, so they're there even if you've never opened them on the phone.
+- Long documents stay fast: only what's on screen is drawn, including inside huge tables and lists, and a scroll handle on the right lets you jump anywhere. The list button in a document's header shows its headings and jumps to one.
+- Light, dark or system theme, and five text sizes for the reader, from the avatar menu or a document's ⋮ menu.
 
 ## How sign-in works
 
