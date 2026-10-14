@@ -5,10 +5,9 @@ import { ActivityIndicator, StyleSheet, Text, TextInput, View } from "react-nati
 
 import { AccountMenu } from "@/components/account-menu";
 import { Button } from "@/components/button";
-import { CollectionList } from "@/components/collection-list";
+import { HomeList } from "@/components/home-list";
 import { useColors, type Colors } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
-import { syncStarredDocuments } from "@/lib/outline/stars";
 
 export default function Index() {
   const colors = useColors();
@@ -103,16 +102,9 @@ function Locked({ colors }: { colors: Colors }) {
   );
 }
 
-/** Signed in: the user's collections. */
+/** Signed in: search, starred and recent documents, and the collections. */
 function Home({ colors }: { colors: Colors }) {
-  const { session, request } = useAuth();
-
-  // Keep starred documents saved on the device for offline reading.
-  useEffect(() => {
-    syncStarredDocuments(request).catch(() => {
-      // Offline or the server is busy; it runs again next time.
-    });
-  }, [request]);
+  const { session } = useAuth();
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
       <Stack.Screen
@@ -121,7 +113,7 @@ function Home({ colors }: { colors: Colors }) {
           headerRight: () => <AccountMenu />,
         }}
       />
-      <CollectionList />
+      <HomeList />
     </View>
   );
 }

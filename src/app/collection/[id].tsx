@@ -5,6 +5,7 @@ import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Tex
 import { ItemIcon } from "@/components/item-icon";
 import { refreshColors, useColors } from "@/constants/colors";
 import { OfflineNote } from "@/components/offline-note";
+import { StarButton } from "@/components/star-button";
 import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
 import { readEntry, writeEntry } from "@/lib/cache";
 import { useAuth } from "@/lib/auth";
@@ -54,7 +55,12 @@ export default function CollectionScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Stack.Screen options={{ title: name ?? "Collection" }} />
+      <Stack.Screen
+        options={{
+          title: name ?? "Collection",
+          headerRight: () => <StarButton target={{ collectionId: id }} />,
+        }}
+      />
       {loading ? (
         <ActivityIndicator style={styles.loading} color={colors.text} />
       ) : (

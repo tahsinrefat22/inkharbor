@@ -12,6 +12,8 @@ const light = {
   primary: "#2563eb",
   onPrimary: "#ffffff",
   danger: "#dc2626",
+  /** A filled star. */
+  star: "#d97706",
   codeBackground: "#f3f4f6",
   codeText: "#1f2937",
 };
@@ -26,6 +28,7 @@ const dark: typeof light = {
   primary: "#3b82f6",
   onPrimary: "#ffffff",
   danger: "#f87171",
+  star: "#fbbf24",
   codeBackground: "#1e1e22",
   codeText: "#e5e7eb",
 };

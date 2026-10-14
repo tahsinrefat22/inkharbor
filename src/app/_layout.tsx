@@ -8,6 +8,7 @@ import { Appearance, StyleSheet, useColorScheme, View } from "react-native";
 import { OpeningAnimation } from "@/components/opening-animation";
 import { useColors } from "@/constants/colors";
 import { AuthProvider } from "@/lib/auth";
+import { StarsProvider } from "@/lib/stars";
 import { applyThemePreference, loadThemePreference } from "@/lib/theme";
 
 SplashScreen.preventAutoHideAsync();
@@ -50,19 +51,21 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={theme}>
       <AuthProvider>
-        <StatusBar style={dark ? "light" : "dark"} />
-        <View style={styles.root}>
-          <Stack
-            screenOptions={{
-              title: "Inkharbor",
-              headerStyle: { backgroundColor: colors.background },
-              headerTintColor: colors.text,
-              headerShadowVisible: false,
-              contentStyle: { backgroundColor: colors.background },
-            }}
-          />
-          {intro ? <OpeningAnimation scheme={SYSTEM_SCHEME} onDone={endIntro} /> : null}
-        </View>
+        <StarsProvider>
+          <StatusBar style={dark ? "light" : "dark"} />
+          <View style={styles.root}>
+            <Stack
+              screenOptions={{
+                title: "Inkharbor",
+                headerStyle: { backgroundColor: colors.background },
+                headerTintColor: colors.text,
+                headerShadowVisible: false,
+                contentStyle: { backgroundColor: colors.background },
+              }}
+            />
+            {intro ? <OpeningAnimation scheme={SYSTEM_SCHEME} onDone={endIntro} /> : null}
+          </View>
+        </StarsProvider>
       </AuthProvider>
     </ThemeProvider>
   );

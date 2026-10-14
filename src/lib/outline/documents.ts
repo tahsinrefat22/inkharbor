@@ -22,6 +22,42 @@ export interface OutlineDocument {
   data: PMNode;
 }
 
+/** A document's details for lists, without its body. */
+export interface DocumentSummary {
+  id: string;
+  title: string;
+  icon: string | null;
+  color: string | null;
+  collectionId: string | null;
+  updatedAt: string;
+}
+
+export function toSummary(document: DocumentSummary): DocumentSummary {
+  const { id, title, icon, color, collectionId, updatedAt } = document;
+  return { id, title, icon: icon ?? null, color: color ?? null, collectionId: collectionId ?? null, updatedAt };
+}
+
+/** A document the user viewed, with when they last did. */
+export interface ViewedDocument extends DocumentSummary {
+  /** ISO date. */
+  lastViewedAt: string;
+}
+
+/**
+ * The documents the user viewed most recently, newest first. Outline only
+ * records views from its own web and desktop apps (an OAuth token can't add
+ * one), so documents read in this app are tracked on the device instead.
+ */
+export async function listViewedDocuments(request: Request, limit: number): Promise<ViewedDocument[]> {
+  const documents = await request<(DocumentSummary & { lastViewedAt?: string | null })[]>(
+    "documents.viewed",
+    { limit },
+  );
+  return documents.flatMap((document) =>
+    document.lastViewedAt ? [{ ...toSummary(document), lastViewedAt: document.lastViewedAt }] : [],
+  );
+}
+
 /**
  * Fetches a document with its body as ProseMirror JSON. API version 3 returns
  * `data` instead of Markdown, and from version 2 the response is wrapped as

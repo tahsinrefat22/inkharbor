@@ -1,6 +1,6 @@
 import * as SQLite from "expo-sqlite";
 
-import type { OutlineDocument } from "@/lib/outline/documents";
+import type { DocumentSummary, OutlineDocument } from "@/lib/outline/documents";
 
 // An on-device copy of what the user has seen, so the app keeps working
 // offline: the collection list, each collection's tree, and documents (the
@@ -121,6 +121,46 @@ export async function writeDocument(
     starred === undefined ? null : 1,
   );
   await pruneDocuments(db);
+}
+
+/** A document opened in this app, with when it was last opened. */
+export interface OpenedDocument extends DocumentSummary {
+  /** Epoch milliseconds. */
+  openedAt: number;
+}
+
+/** The documents most recently opened in this app, newest first. */
+export async function recentlyOpened(limit: number): Promise<OpenedDocument[]> {
+  const db = await database();
+  // Only the details for a list row, not the whole saved body.
+  const rows = await db.getAllAsync<{
+    id: string;
+    title: string | null;
+    icon: string | null;
+    color: string | null;
+    collection_id: string | null;
+    updated_at: string;
+    opened_at: number;
+  }>(
+    `SELECT id,
+       json_extract(value, '$.title') AS title,
+       json_extract(value, '$.icon') AS icon,
+       json_extract(value, '$.color') AS color,
+       json_extract(value, '$.collectionId') AS collection_id,
+       updated_at, opened_at
+     FROM documents WHERE opened_at IS NOT NULL
+     ORDER BY opened_at DESC LIMIT ?`,
+    limit,
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title ?? "",
+    icon: row.icon,
+    color: row.color,
+    collectionId: row.collection_id,
+    updatedAt: row.updated_at,
+    openedAt: row.opened_at,
+  }));
 }
 
 /** When each saved document was last updated on the server, by id. */

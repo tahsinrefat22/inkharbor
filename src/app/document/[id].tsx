@@ -5,6 +5,7 @@ import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from "react
 
 import { ItemIcon } from "@/components/item-icon";
 import { DocumentList } from "@/components/reader/document-body";
+import { StarButton } from "@/components/star-button";
 import { refreshColors, useColors } from "@/constants/colors";
 import { OfflineNote } from "@/components/offline-note";
 import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
@@ -14,6 +15,7 @@ import {
   documentIdFromLink,
   getDocument,
   resolveAttachmentUrl,
+  toSummary,
   type OutlineDocument,
 } from "@/lib/outline/documents";
 
@@ -67,7 +69,17 @@ export default function DocumentScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Stack.Screen options={{ title: title || "Document" }} />
+      <Stack.Screen
+        options={{
+          title: title || "Document",
+          headerRight: () => (
+            <StarButton
+              target={doc ? { documentId: doc.id } : null}
+              document={doc ? toSummary(doc) : undefined}
+            />
+          ),
+        }}
+      />
       <DocumentList
         blocks={doc && session ? (doc.data.content ?? []) : []}
         server={session?.server ?? ""}

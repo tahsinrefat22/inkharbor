@@ -17,6 +17,8 @@ interface CachedLoaderState<T> {
   /** Set while showing a saved copy because the server couldn't be reached. */
   offlineSince: number | null;
   reload: () => Promise<void>;
+  /** Shows and saves a value the app changed itself, such as a new star. */
+  mutate: (value: T) => Promise<void>;
 }
 
 /** No internet, or the server is down: a saved copy is the best we can show. */
@@ -35,9 +37,14 @@ function describeLoadError(err: unknown): string {
  * Shows the saved copy at once, then loads from the server and saves the
  * result. If the server can't be reached, the saved copy stays on screen and
  * `offlineSince` says when it was saved. Keep `load` and `cache` stable
- * (useCallback / useMemo) or they will re-run every render.
+ * (useCallback / useMemo) or they will re-run every render. While `enabled`
+ * is false (e.g. nobody is signed in) nothing loads and `data` is null.
  */
-export function useCachedLoader<T>(load: () => Promise<T>, cache: CacheAdapter<T>): CachedLoaderState<T> {
+export function useCachedLoader<T>(
+  load: () => Promise<T>,
+  cache: CacheAdapter<T>,
+  enabled = true,
+): CachedLoaderState<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -78,6 +85,9 @@ export function useCachedLoader<T>(load: () => Promise<T>, cache: CacheAdapter<T
   );
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
     let current = true;
     const isCurrent = () => current;
     (async () => {
@@ -85,10 +95,9 @@ export function useCachedLoader<T>(load: () => Promise<T>, cache: CacheAdapter<T
       if (!current) {
         return;
       }
-      if (saved) {
-        setData(saved.value);
-        setLoading(false);
-      }
+      // Also replaces what an earlier session showed, e.g. after a reconnect.
+      setData(saved?.value ?? null);
+      setLoading(!saved);
       await fetchFresh(saved, isCurrent);
       if (current) {
         setLoading(false);
@@ -97,7 +106,7 @@ export function useCachedLoader<T>(load: () => Promise<T>, cache: CacheAdapter<T
     return () => {
       current = false;
     };
-  }, [cache, fetchFresh]);
+  }, [cache, fetchFresh, enabled]);
 
   const reload = useCallback(async () => {
     setRefreshing(true);
@@ -106,7 +115,20 @@ export function useCachedLoader<T>(load: () => Promise<T>, cache: CacheAdapter<T
     setRefreshing(false);
   }, [cache, fetchFresh]);
 
-  return { data, error, loading, refreshing, offlineSince, reload };
+  const mutate = useCallback(
+    async (value: T) => {
+      setData(value);
+      await cache.write(value).catch(() => {
+        // Best effort, like saving a server copy.
+      });
+    },
+    [cache],
+  );
+
+  if (!enabled) {
+    return { data: null, error: null, loading: true, refreshing: false, offlineSince: null, reload, mutate };
+  }
+  return { data, error, loading, refreshing, offlineSince, reload, mutate };
 }
 
 /** "saved 5 min ago" style text for offline notes. */
