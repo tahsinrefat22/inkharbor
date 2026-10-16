@@ -17,7 +17,8 @@ function describeSendError(err: unknown, editing: boolean): string {
 /**
  * The box for writing a comment (Markdown). `context` says what it's doing
  * besides a new comment, e.g. "Replying to Sam", with a button to stop.
- * `onSend` posts or saves; the text stays if that fails.
+ * `onSend` posts or saves; the text stays if that fails. The screen keeps
+ * it above the keyboard and the navigation bar.
  */
 export function CommentComposer({
   text,
@@ -26,7 +27,6 @@ export function CommentComposer({
   onCancel,
   editing,
   onSend,
-  bottomInset,
   ref,
 }: {
   text: string;
@@ -36,8 +36,6 @@ export function CommentComposer({
   /** Editing an existing comment: the button saves instead of sending. */
   editing: boolean;
   onSend: () => Promise<void>;
-  /** Space below the box, e.g. for the navigation bar. */
-  bottomInset: number;
   ref?: Ref<TextInput>;
 }) {
   const colors = useColors();
@@ -62,7 +60,7 @@ export function CommentComposer({
     <View
       style={[
         styles.composer,
-        { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: bottomInset + 8 },
+        { backgroundColor: colors.surface, borderColor: colors.border },
       ]}
     >
       {context ? (
@@ -124,6 +122,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 12,
     paddingTop: 8,
+    paddingBottom: 8,
     gap: 6,
   },
   context: {

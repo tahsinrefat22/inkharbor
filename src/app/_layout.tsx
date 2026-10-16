@@ -4,6 +4,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useMemo, useState } from "react";
 import { Appearance, StyleSheet, useColorScheme, View } from "react-native";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 
 import { OpeningAnimation } from "@/components/opening-animation";
 import { useColors } from "@/constants/colors";
@@ -54,26 +55,30 @@ export default function RootLayout() {
     return null;
   }
 
+  // The app draws edge to edge, behind both system bars; keyboard heights
+  // from KeyboardProvider then line up with the screen's own layout.
   return (
-    <ThemeProvider value={theme}>
-      <AuthProvider>
-        <StarsProvider>
-          <StatusBar style={dark ? "light" : "dark"} />
-          <View style={styles.root}>
-            <Stack
-              screenOptions={{
-                title: "Inkharbor",
-                headerStyle: { backgroundColor: colors.background },
-                headerTintColor: colors.text,
-                headerShadowVisible: false,
-                contentStyle: { backgroundColor: colors.background },
-              }}
-            />
-            {intro ? <OpeningAnimation scheme={SYSTEM_SCHEME} onDone={endIntro} /> : null}
-          </View>
-        </StarsProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <KeyboardProvider statusBarTranslucent navigationBarTranslucent preserveEdgeToEdge>
+      <ThemeProvider value={theme}>
+        <AuthProvider>
+          <StarsProvider>
+            <StatusBar style={dark ? "light" : "dark"} />
+            <View style={styles.root}>
+              <Stack
+                screenOptions={{
+                  title: "Inkharbor",
+                  headerStyle: { backgroundColor: colors.background },
+                  headerTintColor: colors.text,
+                  headerShadowVisible: false,
+                  contentStyle: { backgroundColor: colors.background },
+                }}
+              />
+              {intro ? <OpeningAnimation scheme={SYSTEM_SCHEME} onDone={endIntro} /> : null}
+            </View>
+          </StarsProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </KeyboardProvider>
   );
 }
 

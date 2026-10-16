@@ -12,6 +12,8 @@ import {
   View,
   type TextInput,
 } from "react-native";
+import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Avatar } from "@/components/avatar";
@@ -23,7 +25,6 @@ import { ReactionEmoji, ReaderBlocks, ReaderProvider } from "@/components/reader
 import { TabPager } from "@/components/tab-pager";
 import { refreshColors, useColors, type Colors } from "@/constants/colors";
 import { useComments, useMarkCommentsSeen } from "@/hooks/use-comments";
-import { useKeyboardOverlap } from "@/hooks/use-keyboard-overlap";
 import { useReaderLinks } from "@/hooks/use-reader-links";
 import { useAuth } from "@/lib/auth";
 import { readDocument } from "@/lib/cache";
@@ -109,7 +110,12 @@ export default function CommentsScreen() {
   // Everything shown here counts as seen, including comments arriving while it's open.
   useMarkCommentsSeen(id, data);
   const insets = useSafeAreaInsets();
-  const { viewRef: keyboardViewRef, overlap: keyboardOverlap, open: keyboardOpen } = useKeyboardOverlap();
+  // Follows the keyboard frame by frame as it opens and closes. The box
+  // sits on the keyboard, and the space for the navigation bar below it
+  // goes away as the keyboard covers that.
+  const keyboard = useReanimatedKeyboardAnimation();
+  const screenStyle = useAnimatedStyle(() => ({ paddingBottom: -keyboard.height.value }));
+  const composerStyle = useAnimatedStyle(() => ({ paddingBottom: insets.bottom * (1 - keyboard.progress.value) }));
   const inputRef = useRef<TextInput>(null);
   const openListRef = useRef<FlatList<CommentThread>>(null);
 
@@ -262,10 +268,7 @@ export default function CommentsScreen() {
   }
 
   return (
-    <View
-      ref={keyboardViewRef}
-      style={[styles.container, { backgroundColor: colors.background, paddingBottom: keyboardOverlap }]}
-    >
+    <Animated.View style={[styles.container, { backgroundColor: colors.background }, screenStyle]}>
       <Stack.Screen options={{ title: "Comments" }} />
       <ReaderProvider
         server={session?.server ?? ""}
@@ -289,24 +292,25 @@ export default function CommentsScreen() {
         </CommentActionsContext.Provider>
       </ReaderProvider>
       {tab === 0 || mode.kind === "edit" ? (
-        <CommentComposer
-          ref={inputRef}
-          text={text}
-          onChangeText={setText}
-          context={
-            mode.kind === "edit"
-              ? "Editing comment"
-              : mode.kind === "reply"
-                ? `Replying to ${mode.comment.createdBy.name}`
-                : null
-          }
-          onCancel={stop}
-          editing={mode.kind === "edit"}
-          onSend={send}
-          bottomInset={keyboardOpen ? 0 : insets.bottom}
-        />
+        <Animated.View style={[{ backgroundColor: colors.surface }, composerStyle]}>
+          <CommentComposer
+            ref={inputRef}
+            text={text}
+            onChangeText={setText}
+            context={
+              mode.kind === "edit"
+                ? "Editing comment"
+                : mode.kind === "reply"
+                  ? `Replying to ${mode.comment.createdBy.name}`
+                  : null
+            }
+            onCancel={stop}
+            editing={mode.kind === "edit"}
+            onSend={send}
+          />
+        </Animated.View>
       ) : null}
-    </View>
+    </Animated.View>
   );
 }
 
