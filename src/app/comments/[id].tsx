@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Avatar } from "@/components/avatar";
+import { BottomSheet } from "@/components/bottom-sheet";
 import { CommentComposer } from "@/components/comment-composer";
 import { OfflineNote } from "@/components/offline-note";
 import { ReactionsSheet } from "@/components/reactions-sheet";
@@ -28,6 +29,7 @@ import { useAuth } from "@/lib/auth";
 import { readDocument } from "@/lib/cache";
 import { isNetworkError } from "@/lib/outline/api";
 import { commentOrder, toThreads, type CommentThread, type OutlineComment } from "@/lib/outline/comments";
+import { toEditableMarkdown } from "@/lib/outline/markdown";
 import { useTextScale } from "@/lib/text-size";
 
 const TABS = ["Open", "Resolved"];
@@ -35,10 +37,30 @@ const TABS = ["Open", "Resolved"];
 /** What a comment can do, shared with every comment on the screen. */
 interface CommentActions {
   userId: string | null;
+  /** The comment whose text is in the box being edited. */
+  editingId: string | null;
   toggleReaction: (commentId: string, emoji: string) => void;
+  /** Whether the user may edit and delete it: their own, or anyone's for admins, as on the web. */
+  canChange: (comment: OutlineComment) => boolean;
+  startEdit: (comment: OutlineComment) => void;
+  /** Asks first. `replies` is how many replies go with it, for a thread's first comment. */
+  confirmDelete: (comment: OutlineComment, replies: number) => void;
 }
 
-const CommentActionsContext = createContext<CommentActions>({ userId: null, toggleReaction: () => {} });
+const CommentActionsContext = createContext<CommentActions>({
+  userId: null,
+  editingId: null,
+  toggleReaction: () => {},
+  canChange: () => false,
+  startEdit: () => {},
+  confirmDelete: () => {},
+});
+
+/** What the box at the bottom is for. */
+type ComposerMode =
+  | { kind: "new" }
+  | { kind: "reply"; comment: OutlineComment }
+  | { kind: "edit"; comment: OutlineComment; original: string };
 
 function describeActionError(err: unknown): string {
   if (isNetworkError(err)) {
@@ -70,32 +92,26 @@ function commentTime(iso: string): string {
  * order; comments on the whole document come after them. The box at the
  * bottom of the Open tab posts a comment, or a reply after tapping Reply.
  * Resolving a thread moves it to the Resolved tab, and reopening moves it back.
+ * A comment's ⋯ edits it in the same box, or deletes it.
  */
 export default function CommentsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const { session } = useAuth();
   const { openLink, openDocument } = useReaderLinks();
-  const { data, error, loading, refreshing, offlineSince, reload, add, setResolved, toggleReaction, userId } =
+  const { data, error, loading, refreshing, offlineSince, reload, add, edit, remove, setResolved, toggleReaction, userId } =
     useComments(id);
-  const actions = useMemo<CommentActions>(
-    () => ({
-      userId,
-      toggleReaction: (commentId, emoji) => {
-        toggleReaction(commentId, emoji).catch((err: unknown) =>
-          Alert.alert("Reaction not saved", describeActionError(err)),
-        );
-      },
-    }),
-    [userId, toggleReaction],
-  );
+  const isAdmin = session?.account.role === "admin";
+  const [mode, setMode] = useState<ComposerMode>({ kind: "new" });
+  const [text, setText] = useState("");
+  // What was typed before an edit started, put back when it ends.
+  const [draft, setDraft] = useState("");
   // Everything shown here counts as seen, including comments arriving while it's open.
   useMarkCommentsSeen(id, data);
   const insets = useSafeAreaInsets();
   const { viewRef: keyboardViewRef, overlap: keyboardOverlap, open: keyboardOpen } = useKeyboardOverlap();
   const inputRef = useRef<TextInput>(null);
   const openListRef = useRef<FlatList<CommentThread>>(null);
-  const [replyingTo, setReplyingTo] = useState<OutlineComment | null>(null);
 
   // The order of the commented passages, from the saved copy of the document
   // (it's saved whenever it's opened, which is how this screen is reached).
@@ -119,19 +135,99 @@ export default function CommentsScreen() {
   const [tab, setTab] = useState(0);
 
   function reply(comment: OutlineComment) {
-    setReplyingTo(comment);
+    if (mode.kind === "edit") {
+      setText(draft);
+    }
+    setMode({ kind: "reply", comment });
     inputRef.current?.focus();
   }
 
-  async function send(text: string) {
-    const parent = replyingTo;
-    await add(text, parent?.id);
-    setReplyingTo(null);
-    if (!parent) {
+  /** Back to writing a new comment; an edit's text gives way to the earlier draft. */
+  function stop() {
+    if (mode.kind === "edit") {
+      setText(draft);
+      setDraft("");
+    }
+    setMode({ kind: "new" });
+  }
+
+  async function send() {
+    const message = text.trim();
+    if (mode.kind === "edit") {
+      if (message !== mode.original) {
+        await edit(mode.comment.id, message);
+      }
+      stop();
+      return;
+    }
+    await add(message, mode.kind === "reply" ? mode.comment.id : undefined);
+    setText("");
+    setMode({ kind: "new" });
+    if (mode.kind === "new") {
       // New threads on the whole document come last.
       setTimeout(() => openListRef.current?.scrollToEnd({ animated: true }), 100);
     }
   }
+
+  function startEdit(comment: OutlineComment) {
+    const markdown = toEditableMarkdown(comment.data);
+    if (markdown === null) {
+      Alert.alert(
+        "Can't edit this here",
+        "This comment has formatting the app can't edit yet, so editing it here could lose some of it. You can edit it in Outline on the web.",
+      );
+      return;
+    }
+    if (mode.kind !== "edit") {
+      setDraft(text);
+    }
+    setText(markdown);
+    setMode({ kind: "edit", comment, original: markdown });
+    inputRef.current?.focus();
+  }
+
+  function confirmDelete(comment: OutlineComment, replies: number) {
+    const thread = !comment.parentCommentId && replies > 0;
+    Alert.alert(
+      thread ? "Delete this thread?" : "Delete this comment?",
+      thread
+        ? `The comment and its ${replies === 1 ? "reply" : `${replies} replies`} will be deleted for everyone. This can't be undone.`
+        : "It will be deleted for everyone. This can't be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await remove(comment.id);
+              // Stop replying to or editing what's gone.
+              const affected = (other: OutlineComment) =>
+                other.id === comment.id || other.parentCommentId === comment.id;
+              if (mode.kind !== "new" && affected(mode.comment)) {
+                stop();
+              }
+            } catch (err) {
+              Alert.alert("Not deleted", describeActionError(err));
+            }
+          },
+        },
+      ],
+    );
+  }
+
+  const actions: CommentActions = {
+    userId,
+    editingId: mode.kind === "edit" ? mode.comment.id : null,
+    toggleReaction: (commentId, emoji) => {
+      toggleReaction(commentId, emoji).catch((err: unknown) =>
+        Alert.alert("Reaction not saved", describeActionError(err)),
+      );
+    },
+    canChange: (comment) => isAdmin || (userId !== null && comment.createdBy.id === userId),
+    startEdit,
+    confirmDelete,
+  };
 
   function renderPage(index: number) {
     const list = index === 0 ? open : resolved;
@@ -185,18 +281,27 @@ export default function CommentsScreen() {
               initialIndex={tab}
               onChange={(index) => {
                 setTab(index);
-                setReplyingTo(null);
+                stop();
               }}
               renderPage={renderPage}
             />
           </View>
         </CommentActionsContext.Provider>
       </ReaderProvider>
-      {tab === 0 ? (
+      {tab === 0 || mode.kind === "edit" ? (
         <CommentComposer
           ref={inputRef}
-          replyingTo={replyingTo?.createdBy.name ?? null}
-          onCancelReply={() => setReplyingTo(null)}
+          text={text}
+          onChangeText={setText}
+          context={
+            mode.kind === "edit"
+              ? "Editing comment"
+              : mode.kind === "reply"
+                ? `Replying to ${mode.comment.createdBy.name}`
+                : null
+          }
+          onCancel={stop}
+          editing={mode.kind === "edit"}
           onSend={send}
           bottomInset={keyboardOpen ? 0 : insets.bottom}
         />
@@ -253,7 +358,7 @@ function ThreadCard({
           </Text>
         </View>
       ) : null}
-      <CommentView comment={comment} />
+      <CommentView comment={comment} replies={replies.length} />
       {replies.map((reply) => (
         <View key={reply.id} style={[styles.reply, { borderColor: colors.border }]}>
           <CommentView comment={reply} />
@@ -320,15 +425,20 @@ function ThreadAction({
   );
 }
 
-function CommentView({ comment }: { comment: OutlineComment }) {
+function CommentView({ comment, replies = 0 }: { comment: OutlineComment; replies?: number }) {
   const colors = useColors();
   const scale = useTextScale();
   const { session } = useAuth();
-  const { userId, toggleReaction } = useContext(CommentActionsContext);
+  const { userId, editingId, toggleReaction, canChange, startEdit, confirmDelete } =
+    useContext(CommentActionsContext);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const { createdBy } = comment;
+  const editing = editingId === comment.id;
   return (
-    <View style={styles.comment}>
+    <View
+      style={[styles.comment, editing && { backgroundColor: `${colors.primary}14` }, editing && styles.editing]}
+    >
       <Avatar
         name={createdBy.name}
         avatarUrl={createdBy.avatarUrl}
@@ -352,6 +462,17 @@ function CommentView({ comment }: { comment: OutlineComment }) {
           >
             <Ionicons name="happy-outline" size={18 * scale} color={colors.muted} />
           </Pressable>
+          {canChange(comment) ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Comment options"
+              onPress={() => setMenuOpen(true)}
+              hitSlop={10}
+              style={({ pressed }) => pressed && { opacity: 0.5 }}
+            >
+              <Ionicons name="ellipsis-horizontal" size={18 * scale} color={colors.muted} />
+            </Pressable>
+          ) : null}
         </View>
         <ReaderBlocks nodes={comment.data.content ?? []} />
         <Reactions
@@ -370,7 +491,47 @@ function CommentView({ comment }: { comment: OutlineComment }) {
           onClosed={() => setSheetOpen(false)}
         />
       ) : null}
+      {menuOpen ? (
+        <BottomSheet title="Comment" onClosed={() => setMenuOpen(false)}>
+          {(close) => (
+            <View style={styles.menu}>
+              <MenuRow icon="create-outline" label="Edit" onPress={() => close(() => startEdit(comment))} />
+              <MenuRow
+                icon="trash-outline"
+                label={!comment.parentCommentId && replies ? "Delete thread" : "Delete"}
+                danger
+                onPress={() => close(() => confirmDelete(comment, replies))}
+              />
+            </View>
+          )}
+        </BottomSheet>
+      ) : null}
     </View>
+  );
+}
+
+function MenuRow({
+  icon,
+  label,
+  danger = false,
+  onPress,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  danger?: boolean;
+  onPress: () => void;
+}) {
+  const colors = useColors();
+  const color = danger ? colors.danger : colors.text;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.menuRow, pressed && { backgroundColor: `${colors.border}66` }]}
+    >
+      <Ionicons name={icon} size={20} color={color} />
+      <Text style={[styles.menuText, { color }]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -461,6 +622,26 @@ const styles = StyleSheet.create({
   comment: {
     flexDirection: "row",
     gap: 10,
+  },
+  // Room around the highlight of the comment being edited.
+  editing: {
+    margin: -6,
+    padding: 6,
+    borderRadius: 8,
+  },
+  menu: {
+    paddingBottom: 8,
+  },
+  menuRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  menuText: {
+    fontSize: 16,
+    fontWeight: "500",
   },
   commentBody: {
     flex: 1,

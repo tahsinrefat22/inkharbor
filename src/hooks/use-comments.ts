@@ -4,22 +4,30 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
 import { readEntry, writeEntry } from "@/lib/cache";
 import { useAuth } from "@/lib/auth";
+import { withHardBreaks } from "@/lib/outline/markdown";
 import {
   createComment,
+  deleteComment,
   latestCommentAt,
   listComments,
   openComments,
   resolveComment,
   setReaction,
   unresolveComment,
+  updateComment,
   withReaction,
   type OutlineComment,
 } from "@/lib/outline/comments";
 
 // Every screen showing a document's comments (the document's badge and the
-// comments screen) hears about a new or changed one at once.
-type Listener = (documentId: string, comment: OutlineComment) => void;
+// comments screen) hears about a new, changed or deleted one at once.
+type Change = { comment: OutlineComment } | { deleted: string };
+type Listener = (documentId: string, change: Change) => void;
 const listeners = new Set<Listener>();
+
+function announce(documentId: string, change: Change) {
+  listeners.forEach((listener) => listener(documentId, change));
+}
 
 /**
  * A document's comments, saved on the device like the document itself so
@@ -46,18 +54,27 @@ export function useComments(documentId: string | null) {
   }, [data]);
 
   useEffect(() => {
-    const listener: Listener = (id, comment) => {
+    const listener: Listener = (id, change) => {
       if (id !== documentId) {
         return;
       }
       const current = dataRef.current ?? [];
-      const index = current.findIndex((existing) => existing.id === comment.id);
-      const next = [...current];
-      if (index === -1) {
-        next.push(comment);
+      let next: OutlineComment[];
+      if ("deleted" in change) {
+        // A thread's replies go with it.
+        next = current.filter(
+          (existing) => existing.id !== change.deleted && existing.parentCommentId !== change.deleted,
+        );
       } else {
-        // Only comments.list sends the passage a thread is on; keep it.
-        next[index] = { ...comment, anchorText: comment.anchorText ?? current[index].anchorText };
+        const { comment } = change;
+        const index = current.findIndex((existing) => existing.id === comment.id);
+        next = [...current];
+        if (index === -1) {
+          next.push(comment);
+        } else {
+          // Only comments.list sends the passage a thread is on; keep it.
+          next[index] = { ...comment, anchorText: comment.anchorText ?? current[index].anchorText };
+        }
       }
       // Set now, so a second change before the next render builds on this one.
       dataRef.current = next;
@@ -78,8 +95,8 @@ export function useComments(documentId: string | null) {
       if (!documentId) {
         return;
       }
-      const comment = await createComment(request, { documentId, text, parentCommentId });
-      listeners.forEach((listener) => listener(documentId, comment));
+      const comment = await createComment(request, { documentId, text: withHardBreaks(text), parentCommentId });
+      announce(documentId, { comment });
     },
     [request, documentId],
   );
@@ -91,7 +108,7 @@ export function useComments(documentId: string | null) {
         return;
       }
       const comment = await (resolved ? resolveComment : unresolveComment)(request, threadId);
-      listeners.forEach((listener) => listener(documentId, comment));
+      announce(documentId, { comment });
     },
     [request, documentId],
   );
@@ -109,7 +126,7 @@ export function useComments(documentId: string | null) {
       }
       const on = !comment.reactions.some((reaction) => reaction.emoji === emoji && reaction.userIds.includes(userId));
       const show = (reactions: OutlineComment["reactions"]) =>
-        listeners.forEach((listener) => listener(documentId, { ...comment, reactions }));
+        announce(documentId, { comment: { ...comment, reactions } });
       show(withReaction(comment.reactions, emoji, userId, on));
       try {
         await setReaction(request, commentId, emoji, on);
@@ -122,7 +139,31 @@ export function useComments(documentId: string | null) {
     [request, documentId, userId],
   );
 
-  return { ...loader, add, setResolved, toggleReaction, userId };
+  /** Replaces a comment's text (Markdown). Throws if it couldn't be saved. */
+  const edit = useCallback(
+    async (commentId: string, text: string) => {
+      if (!documentId) {
+        return;
+      }
+      const comment = await updateComment(request, commentId, withHardBreaks(text));
+      announce(documentId, { comment });
+    },
+    [request, documentId],
+  );
+
+  /** Deletes a comment, and its replies if it starts a thread. Throws if it couldn't. */
+  const remove = useCallback(
+    async (commentId: string) => {
+      if (!documentId) {
+        return;
+      }
+      await deleteComment(request, commentId);
+      announce(documentId, { deleted: commentId });
+    },
+    [request, documentId],
+  );
+
+  return { ...loader, add, edit, remove, setResolved, toggleReaction, userId };
 }
 
 const seenKey = (documentId: string) => `comments-seen:${documentId}`;

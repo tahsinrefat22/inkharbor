@@ -90,6 +90,16 @@ export async function createComment(
   return toComment(await request<ServerComment>("comments.create", comment));
 }
 
+/** Replaces a comment's text. `text` is Markdown. Returns the updated comment. */
+export async function updateComment(request: Request, id: string, text: string): Promise<OutlineComment> {
+  return toComment(await request<ServerComment>("comments.update", { id, text }));
+}
+
+/** Deletes a comment. Deleting the first comment of a thread deletes its replies too. */
+export async function deleteComment(request: Request, id: string): Promise<void> {
+  await request("comments.delete", { id });
+}
+
 /** Resolves a thread; `id` is its first comment. Returns the updated comment. */
 export async function resolveComment(request: Request, id: string): Promise<OutlineComment> {
   return toComment(await request<ServerComment>("comments.resolve", { id }));

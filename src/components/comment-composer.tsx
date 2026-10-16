@@ -5,35 +5,42 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View 
 import { useColors } from "@/constants/colors";
 import { isNetworkError } from "@/lib/outline/api";
 
-function describeSendError(err: unknown): string {
+function describeSendError(err: unknown, editing: boolean): string {
   if (isNetworkError(err)) {
-    return "Can't reach the server. Your comment is still in the box; send it again when you're online.";
+    return editing
+      ? "Can't reach the server. Your changes are still in the box; save them again when you're online."
+      : "Can't reach the server. Your comment is still in the box; send it again when you're online.";
   }
-  return err instanceof Error ? err.message : "Couldn't post the comment. Try again.";
+  return err instanceof Error ? err.message : "Try again.";
 }
 
 /**
- * The box for writing a comment, or a reply while `replyingTo` is set.
- * `onSend` posts the text (Markdown); the box is cleared once it's posted
- * and keeps the text if posting fails.
+ * The box for writing a comment (Markdown). `context` says what it's doing
+ * besides a new comment, e.g. "Replying to Sam", with a button to stop.
+ * `onSend` posts or saves; the text stays if that fails.
  */
 export function CommentComposer({
-  replyingTo,
-  onCancelReply,
+  text,
+  onChangeText,
+  context,
+  onCancel,
+  editing,
   onSend,
   bottomInset,
   ref,
 }: {
-  /** The name of the person whose thread is being replied to. */
-  replyingTo: string | null;
-  onCancelReply: () => void;
-  onSend: (text: string) => Promise<void>;
+  text: string;
+  onChangeText: (text: string) => void;
+  context: string | null;
+  onCancel: () => void;
+  /** Editing an existing comment: the button saves instead of sending. */
+  editing: boolean;
+  onSend: () => Promise<void>;
   /** Space below the box, e.g. for the navigation bar. */
   bottomInset: number;
   ref?: Ref<TextInput>;
 }) {
   const colors = useColors();
-  const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const canSend = text.trim().length > 0 && !sending;
 
@@ -43,10 +50,9 @@ export function CommentComposer({
     }
     setSending(true);
     try {
-      await onSend(text.trim());
-      setText("");
+      await onSend();
     } catch (err) {
-      Alert.alert("Comment not posted", describeSendError(err));
+      Alert.alert(editing ? "Comment not saved" : "Comment not posted", describeSendError(err, editing));
     } finally {
       setSending(false);
     }
@@ -59,15 +65,16 @@ export function CommentComposer({
         { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: bottomInset + 8 },
       ]}
     >
-      {replyingTo ? (
-        <View style={styles.replying}>
-          <Text style={[styles.replyingText, { color: colors.muted }]} numberOfLines={1}>
-            {`Replying to ${replyingTo}`}
+      {context ? (
+        <View style={styles.context}>
+          <Ionicons name={editing ? "create-outline" : "arrow-undo-outline"} size={14} color={colors.muted} />
+          <Text style={[styles.contextText, { color: colors.muted }]} numberOfLines={1}>
+            {context}
           </Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Cancel reply"
-            onPress={onCancelReply}
+            accessibilityLabel={editing ? "Stop editing" : "Cancel reply"}
+            onPress={onCancel}
             hitSlop={8}
           >
             <Ionicons name="close" size={18} color={colors.muted} />
@@ -78,8 +85,8 @@ export function CommentComposer({
         <TextInput
           ref={ref}
           value={text}
-          onChangeText={setText}
-          placeholder={replyingTo ? "Reply…" : "Add a comment…"}
+          onChangeText={onChangeText}
+          placeholder={context && !editing ? "Reply…" : "Add a comment…"}
           placeholderTextColor={colors.muted}
           multiline
           editable={!sending}
@@ -87,7 +94,7 @@ export function CommentComposer({
         />
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={replyingTo ? "Send reply" : "Send comment"}
+          accessibilityLabel={editing ? "Save changes" : context ? "Send reply" : "Send comment"}
           accessibilityState={{ disabled: !canSend }}
           disabled={!canSend}
           onPress={send}
@@ -100,7 +107,11 @@ export function CommentComposer({
           {sending ? (
             <ActivityIndicator size="small" color={colors.onPrimary} />
           ) : (
-            <Ionicons name="send" size={18} color={canSend ? colors.onPrimary : colors.muted} />
+            <Ionicons
+              name={editing ? "checkmark" : "send"}
+              size={editing ? 22 : 18}
+              color={canSend ? colors.onPrimary : colors.muted}
+            />
           )}
         </Pressable>
       </View>
@@ -115,13 +126,13 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     gap: 6,
   },
-  replying: {
+  context: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     paddingHorizontal: 4,
   },
-  replyingText: {
+  contextText: {
     flex: 1,
     fontSize: 13,
   },
