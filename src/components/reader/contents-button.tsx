@@ -1,8 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
-import { Animated, Easing, FlatList, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { FlatList, Pressable, StyleSheet, Text } from "react-native";
 
+import { BottomSheet } from "@/components/bottom-sheet";
 import type { DocumentHeading } from "@/components/reader/document-body";
 import { useColors } from "@/constants/colors";
 
@@ -22,11 +22,7 @@ export function ContentsButton({
   onSelect: (heading: DocumentHeading) => void;
 }) {
   const colors = useColors();
-  const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
   const [open, setOpen] = useState(false);
-  // 0 = hidden below the screen, 1 = shown.
-  const [progress] = useState(() => new Animated.Value(0));
 
   if (!headings.length) {
     return null;
@@ -34,29 +30,6 @@ export function ContentsButton({
   // Levels are indented relative to the biggest heading used, so a document
   // that starts at H2 isn't indented from the start.
   const topLevel = Math.min(...headings.map((heading) => heading.level));
-  const sheetHeight = windowHeight * 0.7;
-
-  function animateIn() {
-    Animated.timing(progress, {
-      toValue: 1,
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }
-
-  /** Plays the closing animation, then removes the sheet and runs `then`. */
-  function close(then?: () => void) {
-    Animated.timing(progress, {
-      toValue: 0,
-      duration: 160,
-      easing: Easing.in(Easing.cubic),
-      useNativeDriver: true,
-    }).start(() => {
-      setOpen(false);
-      then?.();
-    });
-  }
 
   return (
     <>
@@ -69,38 +42,9 @@ export function ContentsButton({
       >
         <Ionicons name="list" size={24} color={colors.text} />
       </Pressable>
-      <Modal
-        visible={open}
-        transparent
-        statusBarTranslucent
-        navigationBarTranslucent
-        animationType="none"
-        onShow={animateIn}
-        onRequestClose={() => close()}
-      >
-        <View style={styles.backdrop}>
-          <Animated.View
-            style={[StyleSheet.absoluteFill, { backgroundColor: colors.overlay, opacity: progress }]}
-          />
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => close()} accessibilityLabel="Close" />
-          <Animated.View
-            style={[
-              styles.sheet,
-              {
-                maxHeight: sheetHeight,
-                paddingBottom: insets.bottom + 8,
-                backgroundColor: colors.surface,
-                borderColor: colors.border,
-                transform: [
-                  { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [sheetHeight, 0] }) },
-                ],
-              },
-            ]}
-          >
-            <View style={[styles.handle, { backgroundColor: colors.border }]} />
-            <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">
-              Contents
-            </Text>
+      {open ? (
+        <BottomSheet title="Contents" onClosed={() => setOpen(false)}>
+          {(close) => (
             <FlatList
               data={headings}
               keyExtractor={(heading) => String(heading.block)}
@@ -130,9 +74,9 @@ export function ContentsButton({
                 );
               }}
             />
-          </Animated.View>
-        </View>
-      </Modal>
+          )}
+        </BottomSheet>
+      ) : null}
     </>
   );
 }
@@ -140,30 +84,6 @@ export function ContentsButton({
 const styles = StyleSheet.create({
   button: {
     padding: 4,
-  },
-  backdrop: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: 0,
-    paddingTop: 8,
-  },
-  handle: {
-    alignSelf: "center",
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    marginBottom: 8,
-  },
-  title: {
-    fontSize: 17,
-    fontWeight: "600",
-    paddingHorizontal: 20,
-    paddingBottom: 8,
   },
   item: {
     paddingRight: 20,

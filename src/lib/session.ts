@@ -14,6 +14,8 @@ const REFRESH_MARGIN_MS = 60_000;
 
 /** Who is signed in, kept so the lock screen can greet them offline. */
 export interface Account {
+  /** Missing for sessions saved before it was kept, until the app next reaches the server. */
+  userId?: string;
   userName: string;
   userEmail: string;
   teamName: string;

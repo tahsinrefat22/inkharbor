@@ -10,7 +10,9 @@ import {
   listComments,
   openComments,
   resolveComment,
+  setReaction,
   unresolveComment,
+  withReaction,
   type OutlineComment,
 } from "@/lib/outline/comments";
 
@@ -25,7 +27,8 @@ const listeners = new Set<Listener>();
  * known; nothing loads until then.
  */
 export function useComments(documentId: string | null) {
-  const { request } = useAuth();
+  const { request, session } = useAuth();
+  const userId = session?.account.userId ?? null;
   const load = useCallback(() => listComments(request, documentId ?? ""), [request, documentId]);
   const cache = useMemo<CacheAdapter<OutlineComment[]>>(
     () => ({
@@ -93,7 +96,33 @@ export function useComments(documentId: string | null) {
     [request, documentId],
   );
 
-  return { ...loader, add, setResolved };
+  /**
+   * Adds the user's reaction to a comment, or takes it away if they already
+   * reacted with that emoji. It shows at once and goes back if the server
+   * can't be reached, in which case this throws.
+   */
+  const toggleReaction = useCallback(
+    async (commentId: string, emoji: string) => {
+      const comment = dataRef.current?.find((existing) => existing.id === commentId);
+      if (!documentId || !userId || !comment) {
+        return;
+      }
+      const on = !comment.reactions.some((reaction) => reaction.emoji === emoji && reaction.userIds.includes(userId));
+      const show = (reactions: OutlineComment["reactions"]) =>
+        listeners.forEach((listener) => listener(documentId, { ...comment, reactions }));
+      show(withReaction(comment.reactions, emoji, userId, on));
+      try {
+        await setReaction(request, commentId, emoji, on);
+      } catch (err) {
+        const latest = dataRef.current?.find((existing) => existing.id === commentId) ?? comment;
+        show(withReaction(latest.reactions, emoji, userId, !on));
+        throw err;
+      }
+    },
+    [request, documentId, userId],
+  );
+
+  return { ...loader, add, setResolved, toggleReaction, userId };
 }
 
 const seenKey = (documentId: string) => `comments-seen:${documentId}`;

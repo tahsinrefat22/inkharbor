@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Stack, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Avatar } from "@/components/avatar";
 import { CommentComposer } from "@/components/comment-composer";
 import { OfflineNote } from "@/components/offline-note";
+import { ReactionsSheet } from "@/components/reactions-sheet";
 import { ReactionEmoji, ReaderBlocks, ReaderProvider } from "@/components/reader/document-body";
 import { TabPager } from "@/components/tab-pager";
 import { refreshColors, useColors, type Colors } from "@/constants/colors";
@@ -30,6 +31,21 @@ import { commentOrder, toThreads, type CommentThread, type OutlineComment } from
 import { useTextScale } from "@/lib/text-size";
 
 const TABS = ["Open", "Resolved"];
+
+/** What a comment can do, shared with every comment on the screen. */
+interface CommentActions {
+  userId: string | null;
+  toggleReaction: (commentId: string, emoji: string) => void;
+}
+
+const CommentActionsContext = createContext<CommentActions>({ userId: null, toggleReaction: () => {} });
+
+function describeActionError(err: unknown): string {
+  if (isNetworkError(err)) {
+    return "Can't reach the server. Try again when you're online.";
+  }
+  return err instanceof Error ? err.message : "Try again.";
+}
 
 /** "5 min ago" for recent comments, the date for older ones. */
 function commentTime(iso: string): string {
@@ -60,7 +76,19 @@ export default function CommentsScreen() {
   const colors = useColors();
   const { session } = useAuth();
   const { openLink, openDocument } = useReaderLinks();
-  const { data, error, loading, refreshing, offlineSince, reload, add, setResolved } = useComments(id);
+  const { data, error, loading, refreshing, offlineSince, reload, add, setResolved, toggleReaction, userId } =
+    useComments(id);
+  const actions = useMemo<CommentActions>(
+    () => ({
+      userId,
+      toggleReaction: (commentId, emoji) => {
+        toggleReaction(commentId, emoji).catch((err: unknown) =>
+          Alert.alert("Reaction not saved", describeActionError(err)),
+        );
+      },
+    }),
+    [userId, toggleReaction],
+  );
   // Everything shown here counts as seen, including comments arriving while it's open.
   useMarkCommentsSeen(id, data);
   const insets = useSafeAreaInsets();
@@ -150,17 +178,19 @@ export default function CommentsScreen() {
         openLink={openLink}
         openDocument={openDocument}
       >
-        <View style={styles.pager}>
-          <TabPager
-            titles={TABS}
-            initialIndex={tab}
-            onChange={(index) => {
-              setTab(index);
-              setReplyingTo(null);
-            }}
-            renderPage={renderPage}
-          />
-        </View>
+        <CommentActionsContext.Provider value={actions}>
+          <View style={styles.pager}>
+            <TabPager
+              titles={TABS}
+              initialIndex={tab}
+              onChange={(index) => {
+                setTab(index);
+                setReplyingTo(null);
+              }}
+              renderPage={renderPage}
+            />
+          </View>
+        </CommentActionsContext.Provider>
       </ReaderProvider>
       {tab === 0 ? (
         <CommentComposer
@@ -209,14 +239,7 @@ function ThreadCard({
     try {
       await onSetResolved(comment.id, !resolved);
     } catch (err) {
-      Alert.alert(
-        resolved ? "Thread not reopened" : "Thread not resolved",
-        isNetworkError(err)
-          ? "Can't reach the server. Try again when you're online."
-          : err instanceof Error
-            ? err.message
-            : "Try again.",
-      );
+      Alert.alert(resolved ? "Thread not reopened" : "Thread not resolved", describeActionError(err));
       setResolving(false);
     }
     // On success the card moves to the other tab, so there's nothing to reset.
@@ -301,6 +324,8 @@ function CommentView({ comment }: { comment: OutlineComment }) {
   const colors = useColors();
   const scale = useTextScale();
   const { session } = useAuth();
+  const { userId, toggleReaction } = useContext(CommentActionsContext);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const { createdBy } = comment;
   return (
     <View style={styles.comment}>
@@ -313,18 +338,59 @@ function CommentView({ comment }: { comment: OutlineComment }) {
         accessToken={session?.accessToken}
       />
       <View style={styles.commentBody}>
-        <Text style={{ fontSize: 14 * scale }} numberOfLines={1}>
-          <Text style={[styles.author, { color: colors.text }]}>{createdBy.name}</Text>
-          <Text style={{ color: colors.muted }}>{`  ${commentTime(comment.createdAt)}`}</Text>
-        </Text>
+        <View style={styles.commentMeta}>
+          <Text style={[styles.metaText, { fontSize: 14 * scale }]} numberOfLines={1}>
+            <Text style={[styles.author, { color: colors.text }]}>{createdBy.name}</Text>
+            <Text style={{ color: colors.muted }}>{`  ${commentTime(comment.createdAt)}`}</Text>
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="React"
+            onPress={() => setSheetOpen(true)}
+            hitSlop={10}
+            style={({ pressed }) => pressed && { opacity: 0.5 }}
+          >
+            <Ionicons name="happy-outline" size={18 * scale} color={colors.muted} />
+          </Pressable>
+        </View>
         <ReaderBlocks nodes={comment.data.content ?? []} />
-        <Reactions comment={comment} colors={colors} />
+        <Reactions
+          comment={comment}
+          colors={colors}
+          userId={userId}
+          onToggle={(emoji) => toggleReaction(comment.id, emoji)}
+          onShowAll={() => setSheetOpen(true)}
+        />
       </View>
+      {sheetOpen ? (
+        <ReactionsSheet
+          comment={comment}
+          userId={userId}
+          onToggle={(emoji) => toggleReaction(comment.id, emoji)}
+          onClosed={() => setSheetOpen(false)}
+        />
+      ) : null}
     </View>
   );
 }
 
-function Reactions({ comment, colors }: { comment: OutlineComment; colors: Colors }) {
+/**
+ * A comment's reactions as chips. Tapping one adds or takes back the
+ * user's own; holding one shows who reacted.
+ */
+function Reactions({
+  comment,
+  colors,
+  userId,
+  onToggle,
+  onShowAll,
+}: {
+  comment: OutlineComment;
+  colors: Colors;
+  userId: string | null;
+  onToggle: (emoji: string) => void;
+  onShowAll: () => void;
+}) {
   const scale = useTextScale();
   const reactions = comment.reactions.filter((reaction) => reaction.userIds.length);
   if (!reactions.length) {
@@ -332,18 +398,33 @@ function Reactions({ comment, colors }: { comment: OutlineComment; colors: Color
   }
   return (
     <View style={styles.reactions}>
-      {reactions.map((reaction) => (
-        <View
-          key={reaction.emoji}
-          style={[styles.reaction, { borderColor: colors.border }]}
-          accessibilityLabel={`${reaction.emoji}, ${reaction.userIds.length}`}
-        >
-          <Text style={{ fontSize: 14 * scale }}>
-            <ReactionEmoji emoji={reaction.emoji} />
-          </Text>
-          <Text style={{ color: colors.muted, fontSize: 13 * scale }}>{reaction.userIds.length}</Text>
-        </View>
-      ))}
+      {reactions.map((reaction) => {
+        const mine = userId !== null && reaction.userIds.includes(userId);
+        const count = reaction.userIds.length;
+        return (
+          <Pressable
+            key={reaction.emoji}
+            accessibilityRole="button"
+            accessibilityLabel={`${reaction.emoji}, ${count}${mine ? ", including you" : ""}`}
+            accessibilityHint={mine ? "Takes back your reaction. Hold to see who reacted." : "Adds your reaction. Hold to see who reacted."}
+            accessibilityState={{ selected: mine }}
+            disabled={!userId}
+            onPress={() => onToggle(reaction.emoji)}
+            onLongPress={onShowAll}
+            style={({ pressed }) => [
+              styles.reaction,
+              { borderColor: mine ? colors.primary : colors.border },
+              mine && { backgroundColor: `${colors.primary}26` },
+              pressed && { opacity: 0.6 },
+            ]}
+          >
+            <Text style={{ fontSize: 14 * scale }}>
+              <ReactionEmoji emoji={reaction.emoji} />
+            </Text>
+            <Text style={{ color: mine ? colors.primary : colors.muted, fontSize: 13 * scale }}>{count}</Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -384,6 +465,14 @@ const styles = StyleSheet.create({
   commentBody: {
     flex: 1,
     gap: 4,
+  },
+  commentMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  metaText: {
+    flex: 1,
   },
   author: {
     fontWeight: "600",

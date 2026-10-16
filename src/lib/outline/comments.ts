@@ -100,6 +100,42 @@ export async function unresolveComment(request: Request, id: string): Promise<Ou
   return toComment(await request<ServerComment>("comments.unresolve", { id }));
 }
 
+/** Adds the user's reaction to a comment, or takes it away. */
+export async function setReaction(request: Request, commentId: string, emoji: string, on: boolean): Promise<void> {
+  await request(on ? "comments.add_reaction" : "comments.remove_reaction", { id: commentId, emoji });
+}
+
+/** Who reacted to a comment, newest first. */
+export async function listReactions(
+  request: Request,
+  commentId: string,
+): Promise<{ emoji: string; user: CommentUser }[]> {
+  const reactions = await request<{ emoji: string; user: CommentUser }[]>("reactions.list", {
+    commentId,
+    limit: PAGE_SIZE,
+  });
+  return reactions.map(({ emoji, user }) => ({ emoji, user: toUser(user) }));
+}
+
+/**
+ * The comment's reactions with the user's own reaction `emoji` added, or
+ * taken away when `on` is false. Reactions nobody is left on are dropped.
+ */
+export function withReaction(reactions: Reaction[], emoji: string, userId: string, on: boolean): Reaction[] {
+  const others = (reaction: Reaction) => reaction.userIds.filter((id) => id !== userId);
+  if (!on) {
+    return reactions
+      .map((reaction) => (reaction.emoji === emoji ? { ...reaction, userIds: others(reaction) } : reaction))
+      .filter((reaction) => reaction.userIds.length);
+  }
+  if (reactions.some((reaction) => reaction.emoji === emoji)) {
+    return reactions.map((reaction) =>
+      reaction.emoji === emoji ? { ...reaction, userIds: [...others(reaction), userId] } : reaction,
+    );
+  }
+  return [...reactions, { emoji, userIds: [userId] }];
+}
+
 /**
  * The ids of the comments anchored in a document, in the order their
  * passages appear. Outline marks commented text with a "comment" mark.

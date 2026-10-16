@@ -85,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const updated: Session = {
       ...fresh,
       account: {
+        userId: info.user.id,
         userName: info.user.name,
         userEmail: info.user.email,
         teamName: info.team.name,
