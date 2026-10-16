@@ -47,8 +47,13 @@ export function useComments(documentId: string | null) {
   );
   const loader = useCachedLoader(load, cache, documentId !== null);
 
-  const { data, mutate } = loader;
+  const { data, mutate, refreshQuietly } = loader;
   const dataRef = useRef(data);
+  // Counts changes made in the app, so a check of the server that started
+  // before one of them can't undo it when it comes back; and the changes
+  // still on their way, during which checking would find the old state.
+  const changesRef = useRef(0);
+  const sendingRef = useRef(0);
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
@@ -78,6 +83,7 @@ export function useComments(documentId: string | null) {
       }
       // Set now, so a second change before the next render builds on this one.
       dataRef.current = next;
+      changesRef.current++;
       mutate(next);
     };
     listeners.add(listener);
@@ -85,6 +91,16 @@ export function useComments(documentId: string | null) {
       listeners.delete(listener);
     };
   }, [documentId, mutate]);
+
+  /** Runs a change on the server, holding off checks for others' changes meanwhile. */
+  const sending = useCallback(async <T,>(change: () => Promise<T>): Promise<T> => {
+    sendingRef.current++;
+    try {
+      return await change();
+    } finally {
+      sendingRef.current--;
+    }
+  }, []);
 
   /**
    * Posts a comment, or a reply to `parentCommentId`, and shows it. Throws
@@ -95,10 +111,12 @@ export function useComments(documentId: string | null) {
       if (!documentId) {
         return;
       }
-      const comment = await createComment(request, { documentId, text: withHardBreaks(text), parentCommentId });
+      const comment = await sending(() =>
+        createComment(request, { documentId, text: withHardBreaks(text), parentCommentId }),
+      );
       announce(documentId, { comment });
     },
-    [request, documentId],
+    [request, documentId, sending],
   );
 
   /** Resolves a thread, or reopens it when `resolved` is false. Throws if it couldn't. */
@@ -107,10 +125,12 @@ export function useComments(documentId: string | null) {
       if (!documentId) {
         return;
       }
-      const comment = await (resolved ? resolveComment : unresolveComment)(request, threadId);
+      const comment = await sending(() =>
+        (resolved ? resolveComment : unresolveComment)(request, threadId),
+      );
       announce(documentId, { comment });
     },
-    [request, documentId],
+    [request, documentId, sending],
   );
 
   /**
@@ -129,15 +149,24 @@ export function useComments(documentId: string | null) {
         announce(documentId, { comment: { ...comment, reactions } });
       show(withReaction(comment.reactions, emoji, userId, on));
       try {
-        await setReaction(request, commentId, emoji, on);
+        await sending(() => setReaction(request, commentId, emoji, on));
       } catch (err) {
         const latest = dataRef.current?.find((existing) => existing.id === commentId) ?? comment;
         show(withReaction(latest.reactions, emoji, userId, !on));
         throw err;
       }
     },
-    [request, documentId, userId],
+    [request, documentId, userId, sending],
   );
+
+  /** Checks the server for changes made elsewhere, e.g. on the web, without a spinner. */
+  const poll = useCallback(async () => {
+    if (sendingRef.current) {
+      return;
+    }
+    const changes = changesRef.current;
+    await refreshQuietly(() => changesRef.current === changes && !sendingRef.current);
+  }, [refreshQuietly]);
 
   /** Replaces a comment's text (Markdown). Throws if it couldn't be saved. */
   const edit = useCallback(
@@ -145,10 +174,10 @@ export function useComments(documentId: string | null) {
       if (!documentId) {
         return;
       }
-      const comment = await updateComment(request, commentId, withHardBreaks(text));
+      const comment = await sending(() => updateComment(request, commentId, withHardBreaks(text)));
       announce(documentId, { comment });
     },
-    [request, documentId],
+    [request, documentId, sending],
   );
 
   /** Deletes a comment, and its replies if it starts a thread. Throws if it couldn't. */
@@ -157,13 +186,13 @@ export function useComments(documentId: string | null) {
       if (!documentId) {
         return;
       }
-      await deleteComment(request, commentId);
+      await sending(() => deleteComment(request, commentId));
       announce(documentId, { deleted: commentId });
     },
-    [request, documentId],
+    [request, documentId, sending],
   );
 
-  return { ...loader, add, edit, remove, setResolved, toggleReaction, userId };
+  return { ...loader, add, edit, remove, setResolved, toggleReaction, poll, userId };
 }
 
 const seenKey = (documentId: string) => `comments-seen:${documentId}`;

@@ -25,6 +25,7 @@ import { ReactionEmoji, ReaderBlocks, ReaderProvider } from "@/components/reader
 import { TabPager } from "@/components/tab-pager";
 import { refreshColors, useColors, type Colors } from "@/constants/colors";
 import { useComments, useMarkCommentsSeen } from "@/hooks/use-comments";
+import { usePollWhileVisible } from "@/hooks/use-poll-while-visible";
 import { useReaderLinks } from "@/hooks/use-reader-links";
 import { useAuth } from "@/lib/auth";
 import { readDocument } from "@/lib/cache";
@@ -34,6 +35,13 @@ import { toEditableMarkdown } from "@/lib/outline/markdown";
 import { useTextScale } from "@/lib/text-size";
 
 const TABS = ["Open", "Resolved"];
+
+/**
+ * How often the screen checks for comments made elsewhere. Outline's live
+ * updates (its websocket) only accept the web app's login cookie, not the
+ * app's OAuth token, so the app asks instead.
+ */
+const POLL_INTERVAL_MS = 3000;
 
 /** What a comment can do, shared with every comment on the screen. */
 interface CommentActions {
@@ -93,15 +101,31 @@ function commentTime(iso: string): string {
  * order; comments on the whole document come after them. The box at the
  * bottom of the Open tab posts a comment, or a reply after tapping Reply.
  * Resolving a thread moves it to the Resolved tab, and reopening moves it back.
- * A comment's ⋯ edits it in the same box, or deletes it.
+ * A comment's ⋯ edits it in the same box, or deletes it. Changes made
+ * elsewhere appear within a few seconds, and pulling down checks at once.
  */
 export default function CommentsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const { session } = useAuth();
   const { openLink, openDocument } = useReaderLinks();
-  const { data, error, loading, refreshing, offlineSince, reload, add, edit, remove, setResolved, toggleReaction, userId } =
-    useComments(id);
+  const {
+    data,
+    error,
+    loading,
+    refreshing,
+    offlineSince,
+    reload,
+    add,
+    edit,
+    remove,
+    setResolved,
+    toggleReaction,
+    poll,
+    userId,
+  } = useComments(id);
+  // New comments, edits, reactions and resolves from the web show up by themselves.
+  usePollWhileVisible(poll, POLL_INTERVAL_MS);
   const isAdmin = session?.account.role === "admin";
   const [mode, setMode] = useState<ComposerMode>({ kind: "new" });
   const [text, setText] = useState("");

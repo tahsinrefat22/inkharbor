@@ -17,6 +17,12 @@ interface CachedLoaderState<T> {
   /** Set while showing a saved copy because the server couldn't be reached. */
   offlineSince: number | null;
   reload: () => Promise<void>;
+  /**
+   * Checks the server again without the pull-to-refresh spinner, e.g. on a
+   * timer. The answer is dropped if `isCurrent` is false by the time it
+   * arrives, e.g. because the app changed the value itself meanwhile.
+   */
+  refreshQuietly: (isCurrent?: () => boolean) => Promise<void>;
   /** Shows and saves a value the app changed itself, such as a new star. */
   mutate: (value: T) => Promise<void>;
 }
@@ -115,6 +121,17 @@ export function useCachedLoader<T>(
     setRefreshing(false);
   }, [cache, fetchFresh]);
 
+  const refreshQuietly = useCallback(
+    async (isCurrent: () => boolean = () => true) => {
+      if (!enabled) {
+        return;
+      }
+      const saved = await cache.read().catch(() => null);
+      await fetchFresh(saved, isCurrent);
+    },
+    [cache, fetchFresh, enabled],
+  );
+
   const mutate = useCallback(
     async (value: T) => {
       setData(value);
@@ -126,9 +143,18 @@ export function useCachedLoader<T>(
   );
 
   if (!enabled) {
-    return { data: null, error: null, loading: true, refreshing: false, offlineSince: null, reload, mutate };
+    return {
+      data: null,
+      error: null,
+      loading: true,
+      refreshing: false,
+      offlineSince: null,
+      reload,
+      refreshQuietly,
+      mutate,
+    };
   }
-  return { data, error, loading, refreshing, offlineSince, reload, mutate };
+  return { data, error, loading, refreshing, offlineSince, reload, refreshQuietly, mutate };
 }
 
 /** "saved 5 min ago" style text for offline notes. */
