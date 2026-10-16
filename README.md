@@ -2,7 +2,7 @@
 
 An unofficial, open-source Android app for reading [Outline](https://www.getoutline.com) on your phone, mainly for self-hosted instances. It isn't affiliated with General Outline. Outline plans its own mobile app at some point; until then, this fills the gap.
 
-Status: early, at v0.4. It's for reading: sign in to your server, browse collections and documents, search, and keep starred and recent documents available offline. No editing yet. Android only for now; iOS comes later.
+Status: early, at v0.5. It's mainly for reading: sign in to your server, browse collections and documents, search, keep starred and recent documents available offline, and take part in a document's comments. Documents can't be edited yet. Android only for now; iOS comes later.
 
 ## Requirements
 
@@ -23,6 +23,7 @@ Updates install the same way, over the existing app, and keep you signed in.
 
 - Shows your collections and their document trees, and opens documents in a native reader. The reader handles everything Outline's editor can produce: headings, lists and checklists, tables, code, notices, toggles, images, attachments, videos, embeds, mentions and emoji (including your workspace's own). Attachments, videos and embeds open in the browser, and maths shows as its source for now.
 - The home screen has three tabs: Collections, Recent and Starred. Recent combines what you viewed in Outline's web or desktop app with what you opened in Inkharbor, since Outline doesn't record views from other apps. The star in a document's or collection's header stars or unstars it, the same stars as on the web.
+- Comments: the button in a document's header shows its comment threads, with the passage each one is on, on Open and Resolved tabs. You can comment, reply, react (with every emoji Outline offers, including your workspace's own), resolve and reopen threads, and edit or delete your comments (anyone's, for admins). The badge on the button counts comments you haven't seen yet. While the comments are open they refresh every few seconds, so comments made on the web show up by themselves: Outline's live updates only work with its own web login, so the app checks instead.
 - Opens Outline links shared to it. Share a document's link from the browser, a chat or anything else to Inkharbor and it opens in the reader; other links get the option to open in the browser. Tapping an Outline link in another app still opens the browser, because Android only sends web links to an app that was built for that exact domain.
 - Searches all documents from the box on the home screen. Results replace the collections while you type; clearing the box brings them back.
 - Works offline. The collection list, document trees, the 50 most recently opened documents and every starred document are kept on the phone, and lists mark the documents that are. Starred documents are downloaded in the background, so they're there even if you've never opened them on the phone.
@@ -66,13 +67,13 @@ Code layout:
 - `src/app/` screens (Expo Router)
 - `src/components/reader/` the document reader and its scroll handle
 - `src/components/` other shared components, including the opening animation
-- `src/lib/outline/` the Outline API client and sign-in flow
+- `src/lib/outline/` the Outline API client and sign-in flow; `markdown.ts` turns rich text back into Markdown for editing
 - `src/lib/session.ts` keeps the signed-in session in the platform keystore
 - `src/lib/stars.tsx` the user's stars, shared by the home screen and the star buttons
 - `src/lib/cache.ts` the offline copy (SQLite)
-- `src/hooks/` loading with the offline copy, recent documents and search
+- `src/hooks/` loading with the offline copy, comments, recent documents and search
 - `assets/logo-source/` the logo's SVG sources; the PNGs in `assets/images/` are rendered from them
-- `scripts/generate-emoji-names.ts` rebuilds the emoji name table (`bun run emoji-names`)
+- `scripts/generate-emoji-names.ts` rebuilds the emoji name table and the emoji picker's data (`bun run emoji-names`)
 - `scripts/download-apk.ts` downloads a release build with a proper name (`bun run apk`)
 
 ## License
