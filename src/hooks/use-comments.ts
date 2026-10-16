@@ -1,12 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
 import { readEntry, writeEntry } from "@/lib/cache";
 import { useAuth } from "@/lib/auth";
-import { createComment, listComments, type OutlineComment } from "@/lib/outline/comments";
+import {
+  createComment,
+  latestCommentAt,
+  listComments,
+  openComments,
+  resolveComment,
+  unresolveComment,
+  type OutlineComment,
+} from "@/lib/outline/comments";
 
 // Every screen showing a document's comments (the document's badge and the
-// comments screen) hears about a new one at once.
+// comments screen) hears about a new or changed one at once.
 type Listener = (documentId: string, comment: OutlineComment) => void;
 const listeners = new Set<Listener>();
 
@@ -35,10 +44,21 @@ export function useComments(documentId: string | null) {
 
   useEffect(() => {
     const listener: Listener = (id, comment) => {
-      const current = dataRef.current ?? [];
-      if (id === documentId && !current.some((existing) => existing.id === comment.id)) {
-        mutate([...current, comment]);
+      if (id !== documentId) {
+        return;
       }
+      const current = dataRef.current ?? [];
+      const index = current.findIndex((existing) => existing.id === comment.id);
+      const next = [...current];
+      if (index === -1) {
+        next.push(comment);
+      } else {
+        // Only comments.list sends the passage a thread is on; keep it.
+        next[index] = { ...comment, anchorText: comment.anchorText ?? current[index].anchorText };
+      }
+      // Set now, so a second change before the next render builds on this one.
+      dataRef.current = next;
+      mutate(next);
     };
     listeners.add(listener);
     return () => {
@@ -61,5 +81,55 @@ export function useComments(documentId: string | null) {
     [request, documentId],
   );
 
-  return { ...loader, add };
+  /** Resolves a thread, or reopens it when `resolved` is false. Throws if it couldn't. */
+  const setResolved = useCallback(
+    async (threadId: string, resolved: boolean) => {
+      if (!documentId) {
+        return;
+      }
+      const comment = await (resolved ? resolveComment : unresolveComment)(request, threadId);
+      listeners.forEach((listener) => listener(documentId, comment));
+    },
+    [request, documentId],
+  );
+
+  return { ...loader, add, setResolved };
+}
+
+const seenKey = (documentId: string) => `comments-seen:${documentId}`;
+
+/**
+ * Remembers that the comments up to the newest in `comments` were seen, so
+ * the document's badge stops counting them. Called by the comments screen.
+ */
+export function useMarkCommentsSeen(documentId: string, comments: OutlineComment[] | null) {
+  useEffect(() => {
+    const latest = comments ? latestCommentAt(comments) : null;
+    if (latest) {
+      writeEntry(seenKey(documentId), latest).catch(() => {});
+    }
+  }, [documentId, comments]);
+}
+
+/**
+ * How many open comments are newer than the ones seen on the comments
+ * screen, re-checked whenever the screen showing the badge comes back into
+ * view. All count until the comments are opened for the first time.
+ */
+export function useUnseenCommentCount(documentId: string | null, comments: OutlineComment[] | null): number {
+  const [seenAt, setSeenAt] = useState<string | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      if (!documentId) {
+        return;
+      }
+      readEntry<string>(seenKey(documentId))
+        .then((saved) => setSeenAt(saved?.value ?? null))
+        .catch(() => {});
+    }, [documentId]),
+  );
+  return useMemo(
+    () => openComments(comments ?? []).filter((comment) => !seenAt || comment.createdAt > seenAt).length,
+    [comments, seenAt],
+  );
 }

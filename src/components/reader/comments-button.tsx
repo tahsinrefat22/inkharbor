@@ -3,18 +3,29 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useColors } from "@/constants/colors";
 
-/** The header button for a document's comments, with the number of open ones. */
-export function CommentsButton({ count, onPress }: { count: number; onPress: () => void }) {
+/**
+ * The header button for a document's comments. The bubble is filled while
+ * the document has open comments, and the badge counts the ones not seen yet.
+ */
+export function CommentsButton({
+  count,
+  filled,
+  onPress,
+}: {
+  count: number;
+  filled: boolean;
+  onPress: () => void;
+}) {
   const colors = useColors();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={count ? `Comments, ${count} open` : "Comments"}
+      accessibilityLabel={count ? `Comments, ${count} new` : filled ? "Comments, some open" : "Comments"}
       onPress={onPress}
       hitSlop={8}
       style={({ pressed }) => [styles.button, pressed && { opacity: 0.5 }]}
     >
-      <Ionicons name="chatbubble-outline" size={22} color={colors.text} />
+      <Ionicons name={filled ? "chatbubble" : "chatbubble-outline"} size={22} color={colors.text} />
       {count ? (
         <View style={[styles.badge, { backgroundColor: colors.primary, borderColor: colors.background }]}>
           <Text style={[styles.badgeText, { color: colors.onPrimary }]}>{count > 99 ? "99+" : count}</Text>

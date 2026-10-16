@@ -90,6 +90,16 @@ export async function createComment(
   return toComment(await request<ServerComment>("comments.create", comment));
 }
 
+/** Resolves a thread; `id` is its first comment. Returns the updated comment. */
+export async function resolveComment(request: Request, id: string): Promise<OutlineComment> {
+  return toComment(await request<ServerComment>("comments.resolve", { id }));
+}
+
+/** Reopens a resolved thread. */
+export async function unresolveComment(request: Request, id: string): Promise<OutlineComment> {
+  return toComment(await request<ServerComment>("comments.unresolve", { id }));
+}
+
 /**
  * The ids of the comments anchored in a document, in the order their
  * passages appear. Outline marks commented text with a "comment" mark.
@@ -140,9 +150,20 @@ export function toThreads(comments: OutlineComment[], order: string[]): CommentT
 }
 
 /** Comments in unresolved threads, replies included, as Outline counts them. */
-export function openCommentCount(comments: OutlineComment[]): number {
+export function openComments(comments: OutlineComment[]): OutlineComment[] {
   const resolved = new Set(comments.filter((comment) => comment.resolvedAt).map((comment) => comment.id));
   return comments.filter(
     (comment) => !resolved.has(comment.id) && !(comment.parentCommentId && resolved.has(comment.parentCommentId)),
-  ).length;
+  );
+}
+
+/**
+ * The newest comment's date, for remembering which comments were seen. The
+ * server's dates are compared, so the phone's clock doesn't matter.
+ */
+export function latestCommentAt(comments: OutlineComment[]): string | null {
+  return comments.reduce<string | null>(
+    (latest, comment) => (!latest || comment.createdAt > latest ? comment.createdAt : latest),
+    null,
+  );
 }

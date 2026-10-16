@@ -11,13 +11,13 @@ import { StarButton } from "@/components/star-button";
 import { refreshColors, useColors } from "@/constants/colors";
 import { OfflineNote } from "@/components/offline-note";
 import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
-import { useComments } from "@/hooks/use-comments";
+import { useComments, useUnseenCommentCount } from "@/hooks/use-comments";
 import { useReaderLinks } from "@/hooks/use-reader-links";
 import { readDocument, writeDocument } from "@/lib/cache";
 import { useAuth } from "@/lib/auth";
 import { useStars } from "@/lib/stars";
 import { useTextScale } from "@/lib/text-size";
-import { openCommentCount } from "@/lib/outline/comments";
+import { openComments } from "@/lib/outline/comments";
 import { getDocument, toSummary, type OutlineDocument } from "@/lib/outline/documents";
 
 export default function DocumentScreen() {
@@ -35,7 +35,8 @@ export default function DocumentScreen() {
   const { data: doc, error, loading, refreshing, offlineSince, reload: reloadContent } = useCachedLoader(load, cache);
   // `id` can be the urlId from a link; comments are kept by the real id.
   const comments = useComments(doc?.id ?? null);
-  const commentCount = useMemo(() => openCommentCount(comments.data ?? []), [comments.data]);
+  const hasOpenComments = useMemo(() => openComments(comments.data ?? []).length > 0, [comments.data]);
+  const unseenComments = useUnseenCommentCount(doc?.id ?? null, comments.data);
   // Refreshing also catches stars changed elsewhere, e.g. on the web.
   const { reload: reloadStars } = useStars();
   const { reload: reloadComments } = comments;
@@ -66,7 +67,8 @@ export default function DocumentScreen() {
               />
               {doc ? (
                 <CommentsButton
-                  count={commentCount}
+                  count={unseenComments}
+                  filled={hasOpenComments}
                   onPress={() => router.push({ pathname: "/comments/[id]", params: { id: doc.id } })}
                 />
               ) : null}

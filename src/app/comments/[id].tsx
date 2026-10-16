@@ -3,6 +3,7 @@ import { Stack, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -19,11 +20,12 @@ import { OfflineNote } from "@/components/offline-note";
 import { ReactionEmoji, ReaderBlocks, ReaderProvider } from "@/components/reader/document-body";
 import { TabPager } from "@/components/tab-pager";
 import { refreshColors, useColors, type Colors } from "@/constants/colors";
-import { useComments } from "@/hooks/use-comments";
+import { useComments, useMarkCommentsSeen } from "@/hooks/use-comments";
 import { useKeyboardOverlap } from "@/hooks/use-keyboard-overlap";
 import { useReaderLinks } from "@/hooks/use-reader-links";
 import { useAuth } from "@/lib/auth";
 import { readDocument } from "@/lib/cache";
+import { isNetworkError } from "@/lib/outline/api";
 import { commentOrder, toThreads, type CommentThread, type OutlineComment } from "@/lib/outline/comments";
 import { useTextScale } from "@/lib/text-size";
 
@@ -51,13 +53,16 @@ function commentTime(iso: string): string {
  * web. Threads on a passage show the passage and follow the document's
  * order; comments on the whole document come after them. The box at the
  * bottom of the Open tab posts a comment, or a reply after tapping Reply.
+ * Resolving a thread moves it to the Resolved tab, and reopening moves it back.
  */
 export default function CommentsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const { session } = useAuth();
   const { openLink, openDocument } = useReaderLinks();
-  const { data, error, loading, refreshing, offlineSince, reload, add } = useComments(id);
+  const { data, error, loading, refreshing, offlineSince, reload, add, setResolved } = useComments(id);
+  // Everything shown here counts as seen, including comments arriving while it's open.
+  useMarkCommentsSeen(id, data);
   const insets = useSafeAreaInsets();
   const { viewRef: keyboardViewRef, overlap: keyboardOverlap, open: keyboardOpen } = useKeyboardOverlap();
   const inputRef = useRef<TextInput>(null);
@@ -107,7 +112,9 @@ export default function CommentsScreen() {
         ref={index === 0 ? openListRef : undefined}
         data={list}
         keyExtractor={(thread) => thread.comment.id}
-        renderItem={({ item }) => <ThreadCard thread={item} onReply={index === 0 ? reply : undefined} />}
+        renderItem={({ item }) => (
+          <ThreadCard thread={item} onReply={index === 0 ? reply : undefined} onSetResolved={setResolved} />
+        )}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} {...refreshColors(colors)} />}
@@ -168,10 +175,52 @@ export default function CommentsScreen() {
   );
 }
 
-function ThreadCard({ thread, onReply }: { thread: CommentThread; onReply?: (comment: OutlineComment) => void }) {
+function ThreadCard({
+  thread,
+  onReply,
+  onSetResolved,
+}: {
+  thread: CommentThread;
+  /** Not set on resolved threads, which can't be replied to here. */
+  onReply?: (comment: OutlineComment) => void;
+  onSetResolved: (threadId: string, resolved: boolean) => Promise<void>;
+}) {
   const colors = useColors();
   const scale = useTextScale();
   const { comment, replies } = thread;
+  const [resolving, setResolving] = useState(false);
+  const resolved = comment.resolvedAt !== null;
+
+  function confirmToggleResolved() {
+    Alert.alert(
+      resolved ? "Reopen this thread?" : "Resolve this thread?",
+      resolved
+        ? "It moves back to the Open tab."
+        : "It moves to the Resolved tab, where you can reopen it later.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: resolved ? "Reopen" : "Resolve", onPress: toggleResolved },
+      ],
+    );
+  }
+
+  async function toggleResolved() {
+    setResolving(true);
+    try {
+      await onSetResolved(comment.id, !resolved);
+    } catch (err) {
+      Alert.alert(
+        resolved ? "Thread not reopened" : "Thread not resolved",
+        isNetworkError(err)
+          ? "Can't reach the server. Try again when you're online."
+          : err instanceof Error
+            ? err.message
+            : "Try again.",
+      );
+      setResolving(false);
+    }
+    // On success the card moves to the other tab, so there's nothing to reset.
+  }
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       {comment.anchorText ? (
@@ -192,19 +241,59 @@ function ThreadCard({ thread, onReply }: { thread: CommentThread; onReply?: (com
           {`Resolved${comment.resolvedBy ? ` by ${comment.resolvedBy.name}` : ""} · ${commentTime(comment.resolvedAt)}`}
         </Text>
       ) : null}
-      {onReply ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Reply to ${comment.createdBy.name}`}
-          onPress={() => onReply(comment)}
-          hitSlop={8}
-          style={({ pressed }) => [styles.replyButton, pressed && { opacity: 0.5 }]}
-        >
-          <Ionicons name="arrow-undo-outline" size={16 * scale} color={colors.primary} />
-          <Text style={{ color: colors.primary, fontSize: 14 * scale, fontWeight: "500" }}>Reply</Text>
-        </Pressable>
-      ) : null}
+      <View style={styles.actions}>
+        {onReply ? (
+          <ThreadAction
+            icon="arrow-undo-outline"
+            label="Reply"
+            accessibilityLabel={`Reply to ${comment.createdBy.name}`}
+            onPress={() => onReply(comment)}
+          />
+        ) : null}
+        <ThreadAction
+          icon={resolved ? "refresh-outline" : "checkmark-circle-outline"}
+          label={resolved ? "Reopen" : "Resolve"}
+          accessibilityLabel={resolved ? "Reopen thread" : "Resolve thread"}
+          onPress={confirmToggleResolved}
+          busy={resolving}
+        />
+      </View>
     </View>
+  );
+}
+
+function ThreadAction({
+  icon,
+  label,
+  accessibilityLabel,
+  onPress,
+  busy = false,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  accessibilityLabel: string;
+  onPress: () => void;
+  busy?: boolean;
+}) {
+  const colors = useColors();
+  const scale = useTextScale();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ busy, disabled: busy }}
+      disabled={busy}
+      onPress={onPress}
+      hitSlop={8}
+      style={({ pressed }) => [styles.action, (pressed || busy) && { opacity: 0.5 }]}
+    >
+      {busy ? (
+        <ActivityIndicator size="small" color={colors.primary} />
+      ) : (
+        <Ionicons name={icon} size={16 * scale} color={colors.primary} />
+      )}
+      <Text style={{ color: colors.primary, fontSize: 14 * scale, fontWeight: "500" }}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -306,10 +395,13 @@ const styles = StyleSheet.create({
   resolved: {
     fontStyle: "italic",
   },
-  replyButton: {
+  actions: {
+    flexDirection: "row",
+    gap: 24,
+  },
+  action: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
     gap: 6,
   },
   reactions: {
