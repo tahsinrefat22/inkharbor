@@ -1,13 +1,26 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { Stack, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+  type TextInput,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Avatar } from "@/components/avatar";
+import { CommentComposer } from "@/components/comment-composer";
 import { OfflineNote } from "@/components/offline-note";
 import { ReactionEmoji, ReaderBlocks, ReaderProvider } from "@/components/reader/document-body";
 import { TabPager } from "@/components/tab-pager";
 import { refreshColors, useColors, type Colors } from "@/constants/colors";
 import { useComments } from "@/hooks/use-comments";
+import { useKeyboardOverlap } from "@/hooks/use-keyboard-overlap";
 import { useReaderLinks } from "@/hooks/use-reader-links";
 import { useAuth } from "@/lib/auth";
 import { readDocument } from "@/lib/cache";
@@ -36,14 +49,20 @@ function commentTime(iso: string): string {
 /**
  * A document's comment threads, open and resolved on two tabs like on the
  * web. Threads on a passage show the passage and follow the document's
- * order; comments on the whole document come after them.
+ * order; comments on the whole document come after them. The box at the
+ * bottom of the Open tab posts a comment, or a reply after tapping Reply.
  */
 export default function CommentsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const { session } = useAuth();
   const { openLink, openDocument } = useReaderLinks();
-  const { data, error, loading, refreshing, offlineSince, reload } = useComments(id);
+  const { data, error, loading, refreshing, offlineSince, reload, add } = useComments(id);
+  const insets = useSafeAreaInsets();
+  const { viewRef: keyboardViewRef, overlap: keyboardOverlap, open: keyboardOpen } = useKeyboardOverlap();
+  const inputRef = useRef<TextInput>(null);
+  const openListRef = useRef<FlatList<CommentThread>>(null);
+  const [replyingTo, setReplyingTo] = useState<OutlineComment | null>(null);
 
   // The order of the commented passages, from the saved copy of the document
   // (it's saved whenever it's opened, which is how this screen is reached).
@@ -66,13 +85,30 @@ export default function CommentsScreen() {
   );
   const [tab, setTab] = useState(0);
 
+  function reply(comment: OutlineComment) {
+    setReplyingTo(comment);
+    inputRef.current?.focus();
+  }
+
+  async function send(text: string) {
+    const parent = replyingTo;
+    await add(text, parent?.id);
+    setReplyingTo(null);
+    if (!parent) {
+      // New threads on the whole document come last.
+      setTimeout(() => openListRef.current?.scrollToEnd({ animated: true }), 100);
+    }
+  }
+
   function renderPage(index: number) {
     const list = index === 0 ? open : resolved;
     return (
       <FlatList
+        ref={index === 0 ? openListRef : undefined}
         data={list}
         keyExtractor={(thread) => thread.comment.id}
-        renderItem={({ item }) => <ThreadCard thread={item} />}
+        renderItem={({ item }) => <ThreadCard thread={item} onReply={index === 0 ? reply : undefined} />}
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} {...refreshColors(colors)} />}
         ListHeaderComponent={
@@ -95,7 +131,10 @@ export default function CommentsScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View
+      ref={keyboardViewRef}
+      style={[styles.container, { backgroundColor: colors.background, paddingBottom: keyboardOverlap }]}
+    >
       <Stack.Screen options={{ title: "Comments" }} />
       <ReaderProvider
         server={session?.server ?? ""}
@@ -104,13 +143,32 @@ export default function CommentsScreen() {
         openLink={openLink}
         openDocument={openDocument}
       >
-        <TabPager titles={TABS} initialIndex={tab} onChange={setTab} renderPage={renderPage} />
+        <View style={styles.pager}>
+          <TabPager
+            titles={TABS}
+            initialIndex={tab}
+            onChange={(index) => {
+              setTab(index);
+              setReplyingTo(null);
+            }}
+            renderPage={renderPage}
+          />
+        </View>
       </ReaderProvider>
+      {tab === 0 ? (
+        <CommentComposer
+          ref={inputRef}
+          replyingTo={replyingTo?.createdBy.name ?? null}
+          onCancelReply={() => setReplyingTo(null)}
+          onSend={send}
+          bottomInset={keyboardOpen ? 0 : insets.bottom}
+        />
+      ) : null}
     </View>
   );
 }
 
-function ThreadCard({ thread }: { thread: CommentThread }) {
+function ThreadCard({ thread, onReply }: { thread: CommentThread; onReply?: (comment: OutlineComment) => void }) {
   const colors = useColors();
   const scale = useTextScale();
   const { comment, replies } = thread;
@@ -133,6 +191,18 @@ function ThreadCard({ thread }: { thread: CommentThread }) {
         <Text style={[styles.resolved, { color: colors.muted, fontSize: 13 * scale }]}>
           {`Resolved${comment.resolvedBy ? ` by ${comment.resolvedBy.name}` : ""} · ${commentTime(comment.resolvedAt)}`}
         </Text>
+      ) : null}
+      {onReply ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Reply to ${comment.createdBy.name}`}
+          onPress={() => onReply(comment)}
+          hitSlop={8}
+          style={({ pressed }) => [styles.replyButton, pressed && { opacity: 0.5 }]}
+        >
+          <Ionicons name="arrow-undo-outline" size={16 * scale} color={colors.primary} />
+          <Text style={{ color: colors.primary, fontSize: 14 * scale, fontWeight: "500" }}>Reply</Text>
+        </Pressable>
       ) : null}
     </View>
   );
@@ -193,6 +263,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  pager: {
+    flex: 1,
+  },
   list: {
     padding: 16,
     paddingBottom: 48,
@@ -232,6 +305,12 @@ const styles = StyleSheet.create({
   },
   resolved: {
     fontStyle: "italic",
+  },
+  replyButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 6,
   },
   reactions: {
     flexDirection: "row",

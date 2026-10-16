@@ -43,11 +43,28 @@ function toUser(user: CommentUser): CommentUser {
   return { id, name, avatarUrl: avatarUrl ?? null, color };
 }
 
+/** A comment as the server sends it; anchorText only comes when asked for. */
+type ServerComment = Omit<OutlineComment, "anchorText"> & { anchorText?: string };
+
+function toComment(comment: ServerComment): OutlineComment {
+  return {
+    id: comment.id,
+    data: comment.data,
+    parentCommentId: comment.parentCommentId ?? null,
+    createdBy: toUser(comment.createdBy),
+    createdAt: comment.createdAt,
+    resolvedAt: comment.resolvedAt ?? null,
+    resolvedBy: comment.resolvedBy ? toUser(comment.resolvedBy) : null,
+    reactions: comment.reactions ?? [],
+    anchorText: comment.anchorText || null,
+  };
+}
+
 /** Every comment on a document, oldest first. Only the details the app shows are kept. */
 export async function listComments(request: Request, documentId: string): Promise<OutlineComment[]> {
   const all: OutlineComment[] = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
-    const page = await request<(OutlineComment & { anchorText?: string })[]>("comments.list", {
+    const page = await request<ServerComment[]>("comments.list", {
       documentId,
       includeAnchorText: true,
       sort: "createdAt",
@@ -55,23 +72,22 @@ export async function listComments(request: Request, documentId: string): Promis
       limit: PAGE_SIZE,
       offset,
     });
-    all.push(
-      ...page.map((comment) => ({
-        id: comment.id,
-        data: comment.data,
-        parentCommentId: comment.parentCommentId ?? null,
-        createdBy: toUser(comment.createdBy),
-        createdAt: comment.createdAt,
-        resolvedAt: comment.resolvedAt ?? null,
-        resolvedBy: comment.resolvedBy ? toUser(comment.resolvedBy) : null,
-        reactions: comment.reactions ?? [],
-        anchorText: comment.anchorText || null,
-      })),
-    );
+    all.push(...page.map(toComment));
     if (page.length < PAGE_SIZE) {
       return all;
     }
   }
+}
+
+/**
+ * Posts a comment on the whole document, or a reply when `parentCommentId`
+ * is set. `text` is Markdown, which Outline turns into rich text.
+ */
+export async function createComment(
+  request: Request,
+  comment: { documentId: string; text: string; parentCommentId?: string },
+): Promise<OutlineComment> {
+  return toComment(await request<ServerComment>("comments.create", comment));
 }
 
 /**
