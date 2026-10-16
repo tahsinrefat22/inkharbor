@@ -75,7 +75,7 @@ const HeaderCellContext = createContext(false);
 function useReader(): ReaderContextState {
   const value = useContext(ReaderContext);
   if (!value) {
-    throw new Error("Reader components must be inside DocumentList");
+    throw new Error("Reader components must be inside ReaderProvider");
   }
   return value;
 }
@@ -144,6 +144,41 @@ const JUMP_MARGIN = 8;
 const JUMP_ATTEMPTS = 5;
 
 /**
+ * Shares the server, colours and link handling with reader components
+ * outside DocumentList, e.g. ReaderBlocks in a comment.
+ */
+export function ReaderProvider({
+  server,
+  accessToken,
+  colors,
+  openLink,
+  openDocument,
+  children,
+}: ReaderContextValue & { accessToken: string; children: ReactNode }) {
+  const scale = useTextScale();
+  // A stable value, so scrolling new blocks in doesn't redraw the others.
+  const context = useMemo(
+    () => ({ server, colors, openLink, openDocument, scale }),
+    [server, colors, openLink, openDocument, scale],
+  );
+  return (
+    <ReaderContext.Provider value={context}>
+      <AccessTokenContext.Provider value={accessToken}>{children}</AccessTokenContext.Provider>
+    </ReaderContext.Provider>
+  );
+}
+
+/** Rich text drawn in full, for short content like a comment. Needs ReaderProvider. */
+export function ReaderBlocks({ nodes }: { nodes: PMNode[] }) {
+  return <Blocks nodes={nodes} />;
+}
+
+/** A reaction's emoji: the character itself, or one the workspace uploaded. Needs ReaderProvider. */
+export function ReactionEmoji({ emoji }: { emoji: string }) {
+  return UUID.test(emoji) ? <CustomEmoji id={emoji} /> : <Text>{emoji}</Text>;
+}
+
+/**
  * A document as a virtualised list: only what's on or near the screen is
  * drawn, so long documents open quickly on slower phones. Top-level lists
  * and tables are split into one entry per item or row, so even a huge table
@@ -169,12 +204,7 @@ export function DocumentList({
   refreshControl?: ReactElement<RefreshControlProps>;
   contentContainerStyle?: StyleProp<ViewStyle>;
 } & ReaderContextValue & { accessToken: string }) {
-  // A stable value, so scrolling new blocks in doesn't redraw the others.
   const scale = useTextScale();
-  const context = useMemo(
-    () => ({ server, colors, openLink, openDocument, scale }),
-    [server, colors, openLink, openDocument, scale],
-  );
   const rows = useMemo(() => toRows(blocks, scale), [blocks, scale]);
   const { listProps, thumb } = useScrollThumb<Row>(colors);
   const listRef = useRef<FlatList<Row> | null>(null);
@@ -207,31 +237,35 @@ export function DocumentList({
   }
 
   return (
-    <ReaderContext.Provider value={context}>
-      <AccessTokenContext.Provider value={accessToken}>
-        <View style={styles.listFrame}>
-          <Animated.FlatList
-            {...listProps}
-            ref={(list: FlatList<Row> | null) => {
-              listProps.ref(list);
-              listRef.current = list;
-            }}
-            onScrollToIndexFailed={handleJumpFailed}
-            data={rows}
-            keyExtractor={(row) => row.key}
-            renderItem={({ item }) => <RowView row={item} />}
-            ListHeaderComponent={header}
-            ListFooterComponent={footer}
-            refreshControl={refreshControl}
-            contentContainerStyle={contentContainerStyle}
-            initialNumToRender={12}
-            maxToRenderPerBatch={8}
-            windowSize={9}
-          />
-          {thumb}
-        </View>
-      </AccessTokenContext.Provider>
-    </ReaderContext.Provider>
+    <ReaderProvider
+      server={server}
+      accessToken={accessToken}
+      colors={colors}
+      openLink={openLink}
+      openDocument={openDocument}
+    >
+      <View style={styles.listFrame}>
+        <Animated.FlatList
+          {...listProps}
+          ref={(list: FlatList<Row> | null) => {
+            listProps.ref(list);
+            listRef.current = list;
+          }}
+          onScrollToIndexFailed={handleJumpFailed}
+          data={rows}
+          keyExtractor={(row) => row.key}
+          renderItem={({ item }) => <RowView row={item} />}
+          ListHeaderComponent={header}
+          ListFooterComponent={footer}
+          refreshControl={refreshControl}
+          contentContainerStyle={contentContainerStyle}
+          initialNumToRender={12}
+          maxToRenderPerBatch={8}
+          windowSize={9}
+        />
+        {thumb}
+      </View>
+    </ReaderProvider>
   );
 }
 

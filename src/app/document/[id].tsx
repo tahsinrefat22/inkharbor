@@ -1,9 +1,9 @@
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import * as WebBrowser from "expo-web-browser";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { ItemIcon } from "@/components/item-icon";
+import { CommentsButton } from "@/components/reader/comments-button";
 import { ContentsButton } from "@/components/reader/contents-button";
 import { DocumentMenu } from "@/components/reader/document-menu";
 import { DocumentList, documentHeadings, type DocumentListHandle } from "@/components/reader/document-body";
@@ -11,17 +11,14 @@ import { StarButton } from "@/components/star-button";
 import { refreshColors, useColors } from "@/constants/colors";
 import { OfflineNote } from "@/components/offline-note";
 import { useCachedLoader, type CacheAdapter } from "@/hooks/use-cached-loader";
+import { useComments } from "@/hooks/use-comments";
+import { useReaderLinks } from "@/hooks/use-reader-links";
 import { readDocument, writeDocument } from "@/lib/cache";
 import { useAuth } from "@/lib/auth";
 import { useStars } from "@/lib/stars";
 import { useTextScale } from "@/lib/text-size";
-import {
-  documentIdFromLink,
-  getDocument,
-  resolveAttachmentUrl,
-  toSummary,
-  type OutlineDocument,
-} from "@/lib/outline/documents";
+import { openCommentCount } from "@/lib/outline/comments";
+import { getDocument, toSummary, type OutlineDocument } from "@/lib/outline/documents";
 
 export default function DocumentScreen() {
   const { id, title: initialTitle } = useLocalSearchParams<{ id: string; title?: string }>();
@@ -36,44 +33,20 @@ export default function DocumentScreen() {
     [id],
   );
   const { data: doc, error, loading, refreshing, offlineSince, reload: reloadContent } = useCachedLoader(load, cache);
+  // `id` can be the urlId from a link; comments are kept by the real id.
+  const comments = useComments(doc?.id ?? null);
+  const commentCount = useMemo(() => openCommentCount(comments.data ?? []), [comments.data]);
   // Refreshing also catches stars changed elsewhere, e.g. on the web.
   const { reload: reloadStars } = useStars();
+  const { reload: reloadComments } = comments;
   const reload = useCallback(async () => {
-    await Promise.all([reloadContent(), reloadStars()]);
-  }, [reloadContent, reloadStars]);
+    await Promise.all([reloadContent(), reloadStars(), reloadComments()]);
+  }, [reloadContent, reloadStars, reloadComments]);
 
   const listRef = useRef<DocumentListHandle>(null);
   const scale = useTextScale();
   const headings = useMemo(() => documentHeadings(doc?.data.content ?? []), [doc]);
-
-  const openDocument = useCallback((documentId: string) => {
-    router.push({ pathname: "/document/[id]", params: { id: documentId } });
-  }, []);
-
-  // Read at tap time, so the hourly token renewal doesn't give openLink a new
-  // identity (which would redraw the whole document).
-  const sessionRef = useRef(session);
-  useEffect(() => {
-    sessionRef.current = session;
-  }, [session]);
-
-  const openLink = useCallback(
-    async (href: string) => {
-      const current = sessionRef.current;
-      if (!current) {
-        return;
-      }
-      const documentId = documentIdFromLink(href, current.server);
-      if (documentId) {
-        openDocument(documentId);
-        return;
-      }
-      // Files on the Outline server need the token; open their signed URL instead.
-      const url = await resolveAttachmentUrl(href, current.server, current.accessToken);
-      await WebBrowser.openBrowserAsync(url);
-    },
-    [openDocument],
-  );
+  const { openLink, openDocument } = useReaderLinks();
 
   const title = doc?.title ?? initialTitle ?? "";
   const updated = doc
@@ -91,6 +64,12 @@ export default function DocumentScreen() {
                 headings={headings}
                 onSelect={(heading) => listRef.current?.scrollToBlock(heading.block)}
               />
+              {doc ? (
+                <CommentsButton
+                  count={commentCount}
+                  onPress={() => router.push({ pathname: "/comments/[id]", params: { id: doc.id } })}
+                />
+              ) : null}
               <StarButton
                 target={doc ? { documentId: doc.id } : null}
                 document={doc ? toSummary(doc) : undefined}
