@@ -1,4 +1,4 @@
-import type { ApiResponse } from "./api";
+import { allows, type ApiResponse } from "./api";
 import type { Request, RequestWithPolicies } from "./collections";
 
 /** A node of Outline's ProseMirror document JSON. */
@@ -25,13 +25,17 @@ export interface OutlineDocument {
   revision?: number;
   /** Whether the user may edit it. Missing in older saved copies. */
   canUpdate?: boolean;
+  /** Whether the user may add documents nested under this one. */
+  canCreateChild?: boolean;
 }
 
 /** The document with whether the user may edit it, from the answer's policies. */
 export function withAbilities(document: OutlineDocument, policies: ApiResponse<unknown>["policies"]): OutlineDocument {
-  const policy = policies?.find((p) => p.id === document.id);
-  const update = policy?.abilities.update;
-  return { ...document, canUpdate: Array.isArray(update) ? update.length > 0 : update === true };
+  return {
+    ...document,
+    canUpdate: allows(policies, document.id, "update"),
+    canCreateChild: allows(policies, document.id, "createChildDocument"),
+  };
 }
 
 /** A document's details for lists, without its body. */

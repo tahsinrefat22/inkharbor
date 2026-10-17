@@ -13,10 +13,13 @@ import { useColors } from "@/constants/colors";
 export function DocumentMenu({
   webUrl,
   onRename,
+  onNewNested,
 }: {
   webUrl: string | null;
   /** Left out when the document can't be edited. */
   onRename?: () => void;
+  /** Left out when documents can't be added under this one. */
+  onNewNested?: () => void;
 }) {
   const colors = useColors();
   return (
@@ -33,6 +36,7 @@ export function DocumentMenu({
           <ThemePicker />
           <TextSizePicker />
           {onRename ? <MenuItem label="Rename" onPress={() => close(onRename)} /> : null}
+          {onNewNested ? <MenuItem label="New nested document" onPress={() => close(onNewNested)} /> : null}
           {webUrl ? (
             <MenuItem
               label="Open in browser"

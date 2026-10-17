@@ -47,6 +47,12 @@ export interface Policy {
   abilities: Record<string, boolean | string[]>;
 }
 
+/** Whether the policies let the user take `ability` on the model `id`. */
+export function allows(policies: Policy[] | undefined, id: string, ability: string): boolean {
+  const granted = policies?.find((policy) => policy.id === id)?.abilities[ability];
+  return Array.isArray(granted) ? granted.length > 0 : granted === true;
+}
+
 /** A method's answer with the user's policies for the models in it. */
 export interface ApiResponse<T> {
   data: T;

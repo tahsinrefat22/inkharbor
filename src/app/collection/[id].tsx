@@ -1,5 +1,6 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { ItemIcon } from "@/components/item-icon";
@@ -12,7 +13,7 @@ import { useSavedDocuments } from "@/hooks/use-saved-documents";
 import { readEntry, writeEntry } from "@/lib/cache";
 import { useAuth } from "@/lib/auth";
 import { useStars } from "@/lib/stars";
-import { getDocumentTree, type DocumentNode } from "@/lib/outline/collections";
+import { canCreateIn, getDocumentTree, type DocumentNode } from "@/lib/outline/collections";
 
 interface Row {
   node: DocumentNode;
@@ -30,7 +31,7 @@ function visibleRows(nodes: DocumentNode[], expanded: Set<string>, depth = 0): R
 export default function CollectionScreen() {
   const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
   const colors = useColors();
-  const { request } = useAuth();
+  const { request, requestWithPolicies } = useAuth();
   const load = useCallback(() => getDocumentTree(request, id), [request, id]);
   const cache = useMemo<CacheAdapter<DocumentNode[]>>(
     () => ({
@@ -64,6 +65,19 @@ export default function CollectionScreen() {
     await Promise.all([reloadContent(), reloadStars()]);
   }, [reloadContent, reloadStars]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Offline, or until the server says so, there's no way to add a document.
+  const [canCreate, setCanCreate] = useState(false);
+  useEffect(() => {
+    let current = true;
+    canCreateIn(requestWithPolicies, id)
+      .then((allowed) => current && setCanCreate(allowed))
+      .catch(() => {
+        // Stays hidden; it's offered again next time.
+      });
+    return () => {
+      current = false;
+    };
+  }, [requestWithPolicies, id]);
   const saved = useSavedDocuments();
 
   const rows = useMemo(() => visibleRows(data ?? [], expanded), [data, expanded]);
@@ -85,7 +99,24 @@ export default function CollectionScreen() {
       <Stack.Screen
         options={{
           title: name ?? "Collection",
-          headerRight: () => <StarButton target={{ collectionId: id }} />,
+          headerRight: () => (
+            <View style={styles.headerActions}>
+              {canCreate ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="New document"
+                  hitSlop={8}
+                  onPress={() =>
+                    router.push({ pathname: "/new-document", params: { collectionId: id, placeName: name ?? "" } })
+                  }
+                  style={({ pressed }) => [styles.headerButton, pressed && { opacity: 0.5 }]}
+                >
+                  <Ionicons name="add" size={26} color={colors.text} />
+                </Pressable>
+              ) : null}
+              <StarButton target={{ collectionId: id }} />
+            </View>
+          ),
         }}
       />
       {loading ? (
@@ -145,6 +176,14 @@ export default function CollectionScreen() {
 }
 
 const styles = StyleSheet.create({
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  headerButton: {
+    padding: 2,
+  },
   container: {
     flex: 1,
   },

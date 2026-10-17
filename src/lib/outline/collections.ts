@@ -1,4 +1,4 @@
-import type { ApiResponse } from "./api";
+import { allows, type ApiResponse } from "./api";
 
 /** Calls an Outline API method as the signed-in user (see useAuth().request). */
 export type Request = <T>(method: string, body?: object, headers?: Record<string, string>) => Promise<T>;
@@ -55,4 +55,10 @@ export function getDocumentTree(request: Request, collectionId: string): Promise
  */
 export function emojiIcon(icon: string | null | undefined): string | null {
   return icon && /\p{Extended_Pictographic}/u.test(icon) ? icon : null;
+}
+
+/** Whether the user may add documents to the collection. */
+export async function canCreateIn(request: RequestWithPolicies, collectionId: string): Promise<boolean> {
+  const { policies } = await request("collections.info", { id: collectionId });
+  return allows(policies, collectionId, "createDocument");
 }

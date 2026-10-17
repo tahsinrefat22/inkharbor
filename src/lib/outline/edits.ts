@@ -145,3 +145,21 @@ export async function renameDocument(
   );
   return withAbilities(data, policies);
 }
+
+/** Where a new document goes: a collection's top level, or under a document. */
+export type NewDocumentPlace = { collectionId: string } | { parentDocumentId: string };
+
+/** Creates and publishes a document from a title and Markdown text. */
+export async function createDocument(
+  request: RequestWithPolicies,
+  place: NewDocumentPlace,
+  title: string,
+  text: string,
+): Promise<OutlineDocument> {
+  const { data, policies } = await request<OutlineDocument>(
+    "documents.create",
+    { ...place, title, text, publish: true },
+    { "x-api-version": "3" },
+  );
+  return withAbilities(data, policies);
+}

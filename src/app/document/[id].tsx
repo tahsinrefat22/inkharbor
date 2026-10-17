@@ -161,6 +161,15 @@ export default function DocumentScreen() {
                       }
                     : undefined
                 }
+                onNewNested={
+                  doc?.canCreateChild
+                    ? () =>
+                        router.push({
+                          pathname: "/new-document",
+                          params: { parentDocumentId: doc.id, placeName: doc.title || "Untitled" },
+                        })
+                    : undefined
+                }
               />
             </View>
           ),
