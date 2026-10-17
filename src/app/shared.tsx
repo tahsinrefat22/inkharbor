@@ -9,7 +9,7 @@ import { useColors } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
 import { documentIdFromLink } from "@/lib/outline/documents";
 import type { Session } from "@/lib/session";
-import { firstLink, hostOf, isOnServer, pathOf, setPendingLink } from "@/lib/shared-link";
+import { firstLink, hostOf, isFrontPage, isOnServer, pathOf, setPendingLink } from "@/lib/shared-link";
 
 /** Reads what another app shared, once, and lets go of it. */
 function readSharedText(): string {
@@ -29,11 +29,15 @@ type Outcome =
   /** Locked or not connected: the home screen takes over and opens it later. */
   | { kind: "later"; link: string }
   | { kind: "open"; documentId: string }
+  /** The server's front page: its home screen in the app. */
+  | { kind: "home" }
+  /** On another saved server: switch to it, then this screen opens the link there. */
+  | { kind: "switch"; accountId: string }
   | { kind: "noLink" }
   | { kind: "otherServer"; link: string; host: string }
   | { kind: "notDocument"; link: string };
 
-function decide(shared: string, status: string, session: Session | null): Outcome {
+function decide(shared: string, status: string, session: Session | null, sessions: Session[]): Outcome {
   if (status === "loading") {
     return { kind: "waiting" };
   }
@@ -45,35 +49,52 @@ function decide(shared: string, status: string, session: Session | null): Outcom
     return { kind: "later", link };
   }
   if (!isOnServer(link, session.server)) {
-    return { kind: "otherServer", link, host: hostOf(link) };
+    const other = sessions.find((s) => isOnServer(link, s.server));
+    return other ? { kind: "switch", accountId: other.id } : { kind: "otherServer", link, host: hostOf(link) };
+  }
+  if (isFrontPage(link)) {
+    return { kind: "home" };
   }
   const documentId = documentIdFromLink(pathOf(link), session.server);
   return documentId ? { kind: "open", documentId } : { kind: "notDocument", link };
 }
 
 /**
- * Where a link shared to Inkharbor lands. A document on the connected server
- * opens in the app, replacing this screen; anything else gets an explanation
+ * Where a link shared to Inkharbor lands. A document on the open server
+ * opens in the app, replacing this screen; one on another of the user's
+ * servers opens after switching to it; anything else gets an explanation
  * and the browser as a way out. `url` is set when the home screen hands over
  * a link that was shared while the app was locked.
  */
 export default function SharedScreen() {
   const colors = useColors();
-  const { status, session } = useAuth();
+  const { status, session, sessions, switchAccount } = useAuth();
   const params = useLocalSearchParams<{ url?: string }>();
   const [shared] = useState(() => params.url ?? readSharedText());
-  const outcome = useMemo(() => decide(shared, status, session), [shared, status, session]);
+  // Decided again when the open account changes, e.g. after switching.
+  const outcome = useMemo(
+    () => decide(shared, status, session, sessions),
+    [shared, status, session, sessions],
+  );
 
+  useEffect(() => {
+  }, [params.url, shared]);
   useEffect(() => {
     if (outcome.kind === "later") {
       setPendingLink(outcome.link);
       router.replace("/");
+    } else if (outcome.kind === "switch") {
+      // Once the other account is open, this screen is decided again and
+      // replaces itself with the document.
+      switchAccount(outcome.accountId);
+    } else if (outcome.kind === "home") {
+      router.dismissTo("/");
     } else if (outcome.kind === "open") {
       router.replace({ pathname: "/document/[id]", params: { id: outcome.documentId } });
     }
-  }, [outcome]);
+  }, [outcome, switchAccount]);
 
-  if (outcome.kind === "waiting" || outcome.kind === "later" || outcome.kind === "open") {
+  if (outcome.kind === "waiting" || outcome.kind === "later" || outcome.kind === "open" || outcome.kind === "switch" || outcome.kind === "home") {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <Stack.Screen options={{ title: "Opening…" }} />
@@ -86,7 +107,9 @@ export default function SharedScreen() {
     noLink: "There's no link in what was shared, so there's nothing to open.",
     otherServer:
       outcome.kind === "otherServer"
-        ? `This link is on ${outcome.host}, not on the Outline server you're connected to.`
+        ? sessions.length > 1
+          ? `This link is on ${outcome.host}, which isn't one of your Outline servers. You can add it from the account menu.`
+          : `This link is on ${outcome.host}, not on the Outline server you're connected to.`
         : "",
     notDocument: "Inkharbor can open links to documents. This one points somewhere else in Outline.",
   }[outcome.kind];

@@ -45,6 +45,8 @@ function describeLoadError(err: unknown): string {
  * `offlineSince` says when it was saved. Keep `load` and `cache` stable
  * (useCallback / useMemo) or they will re-run every render. While `enabled`
  * is false (e.g. nobody is signed in) nothing loads and `data` is null.
+ * A new `cache` (e.g. another account's) hides the old data at once, until
+ * its own saved copy is read.
  */
 export function useCachedLoader<T>(
   load: () => Promise<T>,
@@ -56,6 +58,8 @@ export function useCachedLoader<T>(
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [offlineSince, setOfflineSince] = useState<number | null>(null);
+  // The cache whose saved copy `data` started from.
+  const [dataCache, setDataCache] = useState<CacheAdapter<T> | null>(null);
 
   const fetchFresh = useCallback(
     async (saved: Cached<T> | null, isCurrent: () => boolean) => {
@@ -103,6 +107,7 @@ export function useCachedLoader<T>(
       }
       // Also replaces what an earlier session showed, e.g. after a reconnect.
       setData(saved?.value ?? null);
+      setDataCache(cache);
       setLoading(!saved);
       await fetchFresh(saved, isCurrent);
       if (current) {
@@ -142,7 +147,7 @@ export function useCachedLoader<T>(
     [cache],
   );
 
-  if (!enabled) {
+  if (!enabled || dataCache !== cache) {
     return {
       data: null,
       error: null,

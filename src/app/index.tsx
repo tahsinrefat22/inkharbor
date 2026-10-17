@@ -107,7 +107,8 @@ function Home({ colors }: { colors: Colors }) {
           headerRight: () => <AccountMenu />,
         }}
       />
-      <HomeList />
+      {/* Starts afresh for another account, with its own lists and search. */}
+      <HomeList key={session?.id} />
     </View>
   );
 }

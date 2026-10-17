@@ -43,7 +43,9 @@ function keyOf(target: StarTarget): string {
  * reading too.
  */
 export function StarsProvider({ children }: { children: ReactNode }) {
-  const { status, request } = useAuth();
+  const { status, request, session } = useAuth();
+  // Each account has its own stars; another account loads its own.
+  const accountId = session?.id;
 
   // One offline sync at a time, so two quick changes don't download the
   // same document twice.
@@ -60,7 +62,9 @@ export function StarsProvider({ children }: { children: ReactNode }) {
           });
       },
     }),
-    [request],
+    // accountId: a new cache for another account, so its stars load afresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [request, accountId],
   );
   const load = useCallback(() => listStars(request), [request]);
   const { data, loading, offlineSince, reload, mutate } = useCachedLoader(load, cache, status === "ready");
@@ -73,6 +77,11 @@ export function StarsProvider({ children }: { children: ReactNode }) {
 
   // What the user just asked for, shown until the server has answered.
   const [pending, setPending] = useState<Map<string, boolean>>(new Map());
+  const [pendingFor, setPendingFor] = useState(accountId);
+  if (pendingFor !== accountId) {
+    setPendingFor(accountId);
+    setPending(new Map());
+  }
 
   const isStarred = useCallback(
     (target: StarTarget) =>

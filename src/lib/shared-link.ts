@@ -25,6 +25,15 @@ export function hostOf(link: string): string {
   }
 }
 
+/** Whether the link is a server's front page, e.g. https://docs.example.com or …/home. */
+export function isFrontPage(link: string): boolean {
+  try {
+    return /^\/(home\/?)?$/.test(new URL(link).pathname || "/");
+  } catch {
+    return false;
+  }
+}
+
 /** The path of a link, e.g. /doc/title-abc123, for documentIdFromLink. */
 export function pathOf(link: string): string {
   try {
