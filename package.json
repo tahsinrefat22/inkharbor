@@ -26,6 +26,7 @@
     "expo-system-ui": "~57.0.4",
     "expo-video": "~57.0.5",
     "expo-web-browser": "~57.0.3",
+    "mathjax-full": "^3.2.2",
     "prosemirror-markdown": "^1.13.8",
     "prosemirror-model": "^1.25.12",
     "react": "19.2.3",

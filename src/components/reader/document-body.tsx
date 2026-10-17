@@ -28,10 +28,12 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
+import { SvgXml } from "react-native-svg";
 
 import { useScrollThumb } from "@/components/reader/scroll-thumb";
 import type { Colors } from "@/constants/colors";
 import emojiNames from "@/lib/emoji-names.json";
+import { renderMaths } from "@/lib/maths";
 import { useTextScale } from "@/lib/text-size";
 import type { PMNode } from "@/lib/outline/documents";
 
@@ -74,6 +76,9 @@ function useImageToken(): string {
 
 /** True inside table header cells, whose text is bold. */
 const HeaderCellContext = createContext(false);
+
+/** The font size of the text around inline content, which maths matches. */
+const FontSizeContext = createContext(16);
 
 function useReader(): ReaderContextState {
   const value = useContext(ReaderContext);
@@ -458,7 +463,7 @@ function Block({ node }: { node: PMNode }) {
       return <LinkCard icon="🔗" title={hostOf(href) ?? "Embedded content"} subtitle={href} href={href} />;
     }
     case "math_block":
-      return <CodeBlock code={plainText(node)} language="math" />;
+      return <BlockMaths tex={plainText(node)} />;
     default:
       // Unknown or inline-only nodes at block level: keep their text.
       return children.length ? <Blocks nodes={children} /> : null;
@@ -480,7 +485,7 @@ function Inline({
   empty?: ReactNode;
   accessibilityRole?: "header";
 }) {
-  const { colors } = useReader();
+  const { colors, scale } = useReader();
   const inHeaderCell = useContext(HeaderCellContext);
   if (!nodes.length) {
     return empty;
@@ -507,7 +512,11 @@ function Inline({
       <ReaderImage key={i} node={segment} />
     ),
   );
-  return rendered.length === 1 ? rendered[0] : <View style={styles.blocks}>{rendered}</View>;
+  return (
+    <FontSizeContext value={StyleSheet.flatten(style).fontSize ?? 16 * scale}>
+      {rendered.length === 1 ? rendered[0] : <View style={styles.blocks}>{rendered}</View>}
+    </FontSizeContext>
+  );
 }
 
 function InlineNode({ node }: { node: PMNode }) {
@@ -527,7 +536,7 @@ function InlineNode({ node }: { node: PMNode }) {
       return <Text>{(emojiNames as Record<string, string>)[name] ?? `:${name}:`}</Text>;
     }
     case "math_inline":
-      return <Text style={[styles.codeInline, { backgroundColor: colors.codeBackground }]}>{plainText(node)}</Text>;
+      return <InlineMaths tex={plainText(node)} />;
     case "mention": {
       const label = stringAttr(node, "label") ?? "";
       const modelId = stringAttr(node, "modelId");
@@ -674,6 +683,54 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
         </Text>
       </ScrollView>
     </View>
+  );
+}
+
+/**
+ * Maths is drawn larger than the text it sits in, since TeX's letters are
+ * small for their size next to the app's font, as KaTeX does on the web.
+ */
+const MATHS_SCALE = 1.2;
+
+/** Maths inside text, sitting on the text's baseline; its source if it can't be drawn. */
+function InlineMaths({ tex }: { tex: string }) {
+  const { colors } = useReader();
+  const size = useContext(FontSizeContext) * MATHS_SCALE;
+  const maths = renderMaths(tex, false);
+  if (!maths) {
+    return <Text style={[styles.codeInline, { backgroundColor: colors.codeBackground }]}>{tex}</Text>;
+  }
+  return (
+    <SvgXml
+      xml={maths.svg}
+      width={maths.width * size}
+      height={maths.height * size}
+      color={colors.text}
+      // Views in text sit on the baseline; this lets the maths reach below it.
+      style={{ transform: [{ translateY: maths.depth * size }] }}
+      accessibilityLabel={tex}
+    />
+  );
+}
+
+/** Maths on its own line, centred, and swipeable if it's wider than the screen. */
+function BlockMaths({ tex }: { tex: string }) {
+  const { colors, scale } = useReader();
+  const maths = renderMaths(tex, true);
+  if (!maths) {
+    return <CodeBlock code={tex} language="math" />;
+  }
+  const size = 16 * scale * MATHS_SCALE;
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mathsBlock}>
+      <SvgXml
+        xml={maths.svg}
+        width={maths.width * size}
+        height={maths.height * size}
+        color={colors.text}
+        accessibilityLabel={tex}
+      />
+    </ScrollView>
   );
 }
 
@@ -1020,6 +1077,11 @@ const styles = StyleSheet.create({
   },
   codeText: {
     fontFamily: CODE_FONT,
+  },
+  mathsBlock: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingVertical: 4,
   },
   codeInline: {
     fontFamily: CODE_FONT,
