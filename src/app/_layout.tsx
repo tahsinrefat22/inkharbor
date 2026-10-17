@@ -2,13 +2,13 @@ import { JetBrainsMono_400Regular, useFonts } from "@expo-google-fonts/jetbrains
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Appearance, StyleSheet, useColorScheme, View } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 
 import { OpeningAnimation } from "@/components/opening-animation";
 import { useColors } from "@/constants/colors";
-import { AuthProvider } from "@/lib/auth";
+import { AuthProvider, useAuth } from "@/lib/auth";
 import { StarsProvider } from "@/lib/stars";
 import { applyThemePreference, loadThemePreference } from "@/lib/theme";
 
@@ -24,6 +24,16 @@ SplashScreen.preventAutoHideAsync();
 const SYSTEM_SCHEME = Appearance.getColorScheme() === "dark" ? "dark" : "light";
 // Before the first render, so a chosen theme doesn't flash the other one.
 applyThemePreference(loadThemePreference());
+
+/**
+ * Everything shown for the open account. Switching accounts starts it
+ * afresh, so no screen or loaded list of one account is left over in the
+ * other.
+ */
+function AccountScope({ children }: { children: ReactNode }) {
+  const { session } = useAuth();
+  return <StarsProvider key={session?.id ?? "none"}>{children}</StarsProvider>;
+}
 
 export default function RootLayout() {
   // The code font ships with the app; see CODE_FONT in the reader.
@@ -61,7 +71,7 @@ export default function RootLayout() {
     <KeyboardProvider statusBarTranslucent navigationBarTranslucent preserveEdgeToEdge>
       <ThemeProvider value={theme}>
         <AuthProvider>
-          <StarsProvider>
+          <AccountScope>
             <StatusBar style={dark ? "light" : "dark"} />
             <View style={styles.root}>
               <Stack
@@ -75,7 +85,7 @@ export default function RootLayout() {
               />
               {intro ? <OpeningAnimation scheme={SYSTEM_SCHEME} onDone={endIntro} /> : null}
             </View>
-          </StarsProvider>
+          </AccountScope>
         </AuthProvider>
       </ThemeProvider>
     </KeyboardProvider>

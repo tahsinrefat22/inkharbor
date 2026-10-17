@@ -8,13 +8,16 @@ import { useAuth } from "@/lib/auth";
 
 export default function Settings() {
   const colors = useColors();
-  const { session, disconnect } = useAuth();
+  const { session, sessions, disconnect } = useAuth();
+  const others = sessions.filter((other) => other.id !== session?.id);
   const [busy, setBusy] = useState(false);
 
   function handleDisconnect() {
     Alert.alert(
       "Disconnect from this server?",
-      "Inkharbor will lose access to your account. To use it again, you'll need to confirm access in the browser.",
+      others.length
+        ? "Inkharbor will lose access to your account on this server and remove its offline copy, then open your next server. To use this one again, add it and confirm access in the browser."
+        : "Inkharbor will lose access to your account. To use it again, you'll need to confirm access in the browser.",
       [
         { text: "Cancel", style: "cancel" },
         {

@@ -1,13 +1,14 @@
 import * as SQLite from "expo-sqlite";
 
 import type { DocumentSummary, OutlineDocument } from "@/lib/outline/documents";
+import { FIRST_ACCOUNT_ID } from "@/lib/session";
 
 // An on-device copy of what the user has seen, so the app keeps working
 // offline: the collection list, each collection's tree, and documents (the
-// most recently opened ones plus every starred one). Cleared on disconnect
-// and when the app's data is cleared.
+// most recently opened ones plus every starred one). Each account has its
+// own database, deleted when the account is removed and when the app's data
+// is cleared.
 
-const DATABASE_NAME = "inkharbor-cache.db";
 const DATABASE_VERSION = 1;
 /** Non-starred documents kept, most recently opened first. */
 const RECENT_DOCUMENTS = 50;
@@ -18,7 +19,15 @@ export interface Cached<T> {
   savedAt: number;
 }
 
-let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
+/** The copy from before 0.7, kept as the first account's. */
+const FIRST_DATABASE_NAME = "inkharbor-cache.db";
+
+function databaseName(accountId: string): string {
+  return accountId === FIRST_ACCOUNT_ID ? FIRST_DATABASE_NAME : `inkharbor-cache-${accountId}.db`;
+}
+
+const databases = new Map<string, Promise<SQLite.SQLiteDatabase>>();
+let currentAccount = FIRST_ACCOUNT_ID;
 
 /** Called whenever documents are saved or removed, e.g. to update offline markers. */
 const documentListeners = new Set<() => void>();
@@ -37,12 +46,44 @@ function documentsChanged(): void {
 }
 
 function database(): Promise<SQLite.SQLiteDatabase> {
-  databasePromise ??= (async () => {
-    const db = await SQLite.openDatabaseAsync(DATABASE_NAME);
-    await migrate(db);
-    return db;
-  })();
-  return databasePromise;
+  const name = databaseName(currentAccount);
+  let promise = databases.get(name);
+  if (!promise) {
+    promise = (async () => {
+      const db = await SQLite.openDatabaseAsync(name);
+      await migrate(db);
+      return db;
+    })();
+    // A failed open is tried again next time.
+    promise.catch(() => databases.delete(name));
+    databases.set(name, promise);
+  }
+  return promise;
+}
+
+/** Points everything saved and read from now on at this account's copy. */
+export function switchCacheTo(accountId: string): void {
+  if (accountId !== currentAccount) {
+    currentAccount = accountId;
+    documentsChanged();
+  }
+}
+
+/** Deletes an account's copy, e.g. when it's removed from the app. */
+export async function deleteCacheOf(accountId: string): Promise<void> {
+  const name = databaseName(accountId);
+  const open = databases.get(name);
+  databases.delete(name);
+  try {
+    await (await open)?.closeAsync();
+  } catch {
+    // Never opened, or already closed.
+  }
+  try {
+    await SQLite.deleteDatabaseAsync(name);
+  } catch {
+    // Nothing was saved for it.
+  }
 }
 
 async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
@@ -222,11 +263,4 @@ async function pruneDocuments(db: SQLite.SQLiteDatabase): Promise<void> {
      )`,
     RECENT_DOCUMENTS,
   );
-}
-
-/** Forgets everything saved, e.g. when the user disconnects. */
-export async function clearCache(): Promise<void> {
-  const db = await database();
-  await db.execAsync("DELETE FROM entries; DELETE FROM documents;");
-  documentsChanged();
 }

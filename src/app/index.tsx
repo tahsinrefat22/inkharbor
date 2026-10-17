@@ -1,14 +1,15 @@
 import * as LocalAuthentication from "expo-local-authentication";
 import { router, Stack } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
 import { AccountMenu } from "@/components/account-menu";
 import { Button } from "@/components/button";
 import { HomeList } from "@/components/home-list";
+import { ServerForm } from "@/components/server-form";
 import { useColors, type Colors } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
-import { takePendingLink } from "@/lib/shared-link";
+import { hostOf, takePendingLink } from "@/lib/shared-link";
 
 export default function Index() {
   const colors = useColors();
@@ -30,39 +31,22 @@ export default function Index() {
   return <Home colors={colors} />;
 }
 
-/** First run, or after a disconnect: pick a server and authorize once. */
+/** First run, after a disconnect, or when a server asks to sign in again. */
 function Setup({ colors }: { colors: Colors }) {
-  const { lastServer, message, connect } = useAuth();
-  const [server, setServer] = useState(lastServer);
-  const [busy, setBusy] = useState(false);
-
-  async function handleConnect() {
-    setBusy(true);
-    await connect(server);
-    setBusy(false);
-  }
-
+  const { lastServer, message, sessions, cancelSetup } = useAuth();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Text style={[styles.title, { color: colors.text }]}>Connect to Outline</Text>
       <Text style={{ color: colors.muted }}>
         {"Enter your Outline server's address. You'll confirm access once in the browser."}
       </Text>
-      <TextInput
-        style={[styles.input, { color: colors.text, borderColor: colors.border }]}
-        value={server}
-        onChangeText={setServer}
-        placeholder="https://docs.example.com"
-        placeholderTextColor={colors.muted}
-        selectionColor={colors.primary}
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardType="url"
-        editable={!busy}
-        onSubmitEditing={handleConnect}
-      />
-      <Button title="Continue" variant="primary" onPress={handleConnect} disabled={!server.trim()} busy={busy} />
-      {message ? <Text style={{ color: colors.danger }}>{message}</Text> : null}
+      <ServerForm initialServer={lastServer} message={message} />
+      {sessions.length ? (
+        <Button
+          title={`Back to ${sessions[0].account.teamName || hostOf(sessions[0].server)}`}
+          onPress={cancelSetup}
+        />
+      ) : null}
     </View>
   );
 }
@@ -138,12 +122,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: "600",
-  },
-  input: {
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
   },
   note: {
     fontSize: 13,
