@@ -67,7 +67,8 @@
             "singleShareMimeTypes": ["text/plain"]
           }
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,

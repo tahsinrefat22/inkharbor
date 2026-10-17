@@ -1,4 +1,7 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { useEvent } from "expo";
 import { Image } from "expo-image";
+import { useVideoPlayer, VideoView, type VideoSource } from "expo-video";
 import {
   createContext,
   useContext,
@@ -449,14 +452,7 @@ function Block({ node }: { node: PMNode }) {
     case "attachment":
       return <AttachmentCard node={node} />;
     case "video":
-      return (
-        <LinkCard
-          icon="▶"
-          title={stringAttr(node, "title") ?? "Video"}
-          subtitle="Opens in the browser"
-          href={stringAttr(node, "src")}
-        />
-      );
+      return <ReaderVideo node={node} />;
     case "embed": {
       const href = stringAttr(node, "href");
       return <LinkCard icon="🔗" title={hostOf(href) ?? "Embedded content"} subtitle={href} href={href} />;
@@ -800,6 +796,109 @@ function ReaderImage({ node }: { node: PMNode }) {
   );
 }
 
+/** Portrait videos are shown no taller than this, relative to the width. */
+const TALLEST_VIDEO_RATIO = 3 / 4;
+
+/**
+ * A video in the document. It only loads when tapped, so opening a
+ * document doesn't download its videos. Uploaded videos are fetched from
+ * Outline's attachment link with the token: Outline redirects to a
+ * short-lived signed link for each request (so seeking keeps working), and
+ * the player drops the token when that link is on another host, e.g. S3.
+ */
+function ReaderVideo({ node }: { node: PMNode }) {
+  const { server, colors, scale } = useReader();
+  const [started, setStarted] = useState(false);
+  // Bumped by "Try again", which starts a new player with a fresh token.
+  const [attempt, setAttempt] = useState(0);
+  const src = stringAttr(node, "src");
+  const title = stringAttr(node, "title");
+  const width = numberAttr(node, "width");
+  const height = numberAttr(node, "height");
+  if (!src) {
+    return null;
+  }
+  const ratio = Math.max(width && height ? width / height : 16 / 9, TALLEST_VIDEO_RATIO);
+  const uri = src.startsWith("/") ? `${server}${src}` : src;
+  return (
+    <View style={styles.video}>
+      <View style={[styles.videoFrame, { aspectRatio: ratio }]}>
+        {started ? (
+          <VideoPlayback
+            key={attempt}
+            uri={uri}
+            href={src}
+            ownServer={uri.startsWith(server)}
+            title={title}
+            onRetry={() => setAttempt((value) => value + 1)}
+          />
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={title ? `Play ${title}` : "Play video"}
+            onPress={() => setStarted(true)}
+            style={({ pressed }) => [styles.videoStart, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name="play-circle" size={64} color="#ffffff" />
+          </Pressable>
+        )}
+      </View>
+      {title ? (
+        <Text style={{ color: colors.muted, fontSize: 13 * scale }} numberOfLines={2}>
+          {title}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function VideoPlayback({
+  uri,
+  href,
+  ownServer,
+  title,
+  onRetry,
+}: {
+  uri: string;
+  /** The link as the document has it, for opening in the browser. */
+  href: string;
+  ownServer: boolean;
+  title?: string;
+  onRetry: () => void;
+}) {
+  const { openLink } = useReader();
+  const accessToken = useImageToken();
+  const source = useMemo<VideoSource>(
+    () => ({
+      uri,
+      headers: ownServer ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      metadata: title ? { title } : undefined,
+    }),
+    [uri, ownServer, accessToken, title],
+  );
+  const player = useVideoPlayer(source, (created) => created.play());
+  const { status } = useEvent(player, "statusChange", { status: player.status });
+
+  return (
+    <>
+      <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls fullscreenOptions={{ enable: true }} />
+      {status === "error" ? (
+        <View style={styles.videoError}>
+          <Text style={styles.videoErrorText}>{"Couldn't play this video."}</Text>
+          <View style={styles.videoErrorActions}>
+            <Pressable accessibilityRole="button" onPress={onRetry} hitSlop={8}>
+              <Text style={styles.videoErrorAction}>Try again</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" onPress={() => openLink(href)} hitSlop={8}>
+              <Text style={styles.videoErrorAction}>Open in browser</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+    </>
+  );
+}
+
 function formatBytes(bytes: number | undefined): string | undefined {
   if (!bytes) {
     return undefined;
@@ -962,6 +1061,43 @@ const styles = StyleSheet.create({
   image: {
     width: "100%",
     borderRadius: 8,
+  },
+  video: {
+    gap: 6,
+  },
+  videoFrame: {
+    width: "100%",
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "#000000",
+  },
+  videoStart: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  videoError: {
+    ...StyleSheet.absoluteFill,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    padding: 16,
+    backgroundColor: "rgba(0, 0, 0, 0.75)",
+  },
+  videoErrorText: {
+    color: "#ffffff",
+    fontSize: 15,
+    textAlign: "center",
+  },
+  videoErrorActions: {
+    flexDirection: "row",
+    gap: 24,
+  },
+  videoErrorAction: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "600",
+    textDecorationLine: "underline",
   },
   card: {
     flexDirection: "row",
