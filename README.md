@@ -2,7 +2,7 @@
 
 An unofficial, open-source Android app for reading [Outline](https://www.getoutline.com) on your phone, mainly for self-hosted instances. It isn't affiliated with General Outline. Outline plans its own mobile app at some point; until then, this fills the gap.
 
-Status: early, at v0.7. It's mainly for reading: sign in to one or more servers, browse collections and documents, search, keep starred and recent documents available offline, and take part in a document's comments. Documents can't be edited yet. Android only for now; iOS comes later.
+Status: early, at v0.8. It's mainly for reading: sign in to one or more servers, browse collections and documents, search, keep starred and recent documents available offline, and take part in a document's comments. Editing has started with small changes: ticking checkboxes, renaming documents and creating new ones. A full editor comes later. Android only for now; iOS comes later.
 
 ## Requirements
 
@@ -24,6 +24,7 @@ Updates install the same way, over the existing app, and keep you signed in.
 - Shows your collections and their document trees, and opens documents in a native reader. The reader handles everything Outline's editor can produce: headings, lists and checklists, tables, code, notices, toggles, images, attachments, videos, embeds, mentions and emoji (including your workspace's own). Videos play in the reader, maths is drawn as it is on the web, and attachments and embeds open in the browser.
 - The home screen has three tabs: Collections, Recent and Starred. Recent combines what you viewed in Outline's web or desktop app with what you opened in Inkharbor, since Outline doesn't record views from other apps. The star in a document's or collection's header stars or unstars it, the same stars as on the web.
 - Comments: the button in a document's header shows its comment threads, with the passage each one is on, on Open and Resolved tabs. You can comment, reply, react (with every emoji Outline offers, including your workspace's own), resolve and reopen threads, and edit or delete your comments (anyone's, for admins). The badge on the button counts comments you haven't seen yet. While the comments are open they refresh every few seconds, so comments made on the web show up by themselves: Outline's live updates only work with its own web login, so the app checks instead.
+- Small edits, where Outline lets you edit: tap a checkbox to tick or untick it, rename a document from its ⋮ menu, and create documents with the + in a collection's header or New nested document in a document's ⋮ menu. A new document takes a title and, optionally, text written in Markdown. Ticking saves only that checkbox's line, so comments and highlights elsewhere in the document stay as they were, and if someone changed the document in the meantime the app refreshes it instead of saving over their change.
 - Several servers: add another from the avatar menu and switch between them there. Each keeps its own offline copy, so switching shows that server's saved documents straight away, even offline.
 - Opens Outline links shared to it. Share a document's link from the browser, a chat or anything else to Inkharbor and it opens in the reader, switching to the right server first if you've added more than one; other links get the option to open in the browser. Tapping an Outline link in another app still opens the browser, because Android only sends web links to an app that was built for that exact domain.
 - Searches all documents from the box on the home screen. Results replace the collections while you type; clearing the box brings them back.
@@ -68,7 +69,7 @@ Code layout:
 - `src/app/` screens (Expo Router)
 - `src/components/reader/` the document reader and its scroll handle
 - `src/components/` other shared components, including the opening animation
-- `src/lib/outline/` the Outline API client and sign-in flow; `markdown.ts` turns rich text back into Markdown for editing
+- `src/lib/outline/` the Outline API client and sign-in flow; `markdown.ts` turns rich text back into Markdown for editing, `edits.ts` saves checkboxes, titles and new documents
 - `src/lib/maths.ts` draws TeX maths as SVG with MathJax
 - `src/lib/session.ts` keeps each server's session in the platform keystore
 - `src/lib/stars.tsx` the user's stars, shared by the home screen and the star buttons
