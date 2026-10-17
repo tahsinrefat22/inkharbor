@@ -2,7 +2,7 @@
 
 An unofficial, open-source Android app for reading [Outline](https://www.getoutline.com) on your phone, mainly for self-hosted instances. It isn't affiliated with General Outline. Outline plans its own mobile app at some point; until then, this fills the gap.
 
-Status: early, at v0.5. It's mainly for reading: sign in to your server, browse collections and documents, search, keep starred and recent documents available offline, and take part in a document's comments. Documents can't be edited yet. Android only for now; iOS comes later.
+Status: early, at v0.6. It's mainly for reading: sign in to your server, browse collections and documents, search, keep starred and recent documents available offline, and take part in a document's comments. Documents can't be edited yet. Android only for now; iOS comes later.
 
 ## Requirements
 
@@ -21,7 +21,7 @@ Updates install the same way, over the existing app, and keep you signed in.
 
 ## What it does
 
-- Shows your collections and their document trees, and opens documents in a native reader. The reader handles everything Outline's editor can produce: headings, lists and checklists, tables, code, notices, toggles, images, attachments, videos, embeds, mentions and emoji (including your workspace's own). Attachments, videos and embeds open in the browser, and maths shows as its source for now.
+- Shows your collections and their document trees, and opens documents in a native reader. The reader handles everything Outline's editor can produce: headings, lists and checklists, tables, code, notices, toggles, images, attachments, videos, embeds, mentions and emoji (including your workspace's own). Videos play in the reader, maths is drawn as it is on the web, and attachments and embeds open in the browser.
 - The home screen has three tabs: Collections, Recent and Starred. Recent combines what you viewed in Outline's web or desktop app with what you opened in Inkharbor, since Outline doesn't record views from other apps. The star in a document's or collection's header stars or unstars it, the same stars as on the web.
 - Comments: the button in a document's header shows its comment threads, with the passage each one is on, on Open and Resolved tabs. You can comment, reply, react (with every emoji Outline offers, including your workspace's own), resolve and reopen threads, and edit or delete your comments (anyone's, for admins). The badge on the button counts comments you haven't seen yet. While the comments are open they refresh every few seconds, so comments made on the web show up by themselves: Outline's live updates only work with its own web login, so the app checks instead.
 - Opens Outline links shared to it. Share a document's link from the browser, a chat or anything else to Inkharbor and it opens in the reader; other links get the option to open in the browser. Tapping an Outline link in another app still opens the browser, because Android only sends web links to an app that was built for that exact domain.
@@ -68,6 +68,7 @@ Code layout:
 - `src/components/reader/` the document reader and its scroll handle
 - `src/components/` other shared components, including the opening animation
 - `src/lib/outline/` the Outline API client and sign-in flow; `markdown.ts` turns rich text back into Markdown for editing
+- `src/lib/maths.ts` draws TeX maths as SVG with MathJax
 - `src/lib/session.ts` keeps the signed-in session in the platform keystore
 - `src/lib/stars.tsx` the user's stars, shared by the home screen and the star buttons
 - `src/lib/cache.ts` the offline copy (SQLite)
