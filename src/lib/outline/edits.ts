@@ -128,3 +128,20 @@ export async function setChecked(
     lastRevision: server.revision,
   });
 }
+
+/** Outline's limit for document titles. */
+export const MAX_TITLE_LENGTH = 100;
+
+/** Gives the document a new title and returns it as saved. */
+export async function renameDocument(
+  request: RequestWithPolicies,
+  id: string,
+  title: string,
+): Promise<OutlineDocument> {
+  const { data, policies } = await request<OutlineDocument>(
+    "documents.update",
+    { id, title },
+    { "x-api-version": "3" },
+  );
+  return withAbilities(data, policies);
+}

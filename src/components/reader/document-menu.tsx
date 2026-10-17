@@ -10,7 +10,14 @@ import { useColors } from "@/constants/colors";
  * A document's ⋮ menu: reading settings (the same ones as the account
  * menu, kept in sync) and actions on the document.
  */
-export function DocumentMenu({ webUrl }: { webUrl: string | null }) {
+export function DocumentMenu({
+  webUrl,
+  onRename,
+}: {
+  webUrl: string | null;
+  /** Left out when the document can't be edited. */
+  onRename?: () => void;
+}) {
   const colors = useColors();
   return (
     <PopupMenu
@@ -25,6 +32,7 @@ export function DocumentMenu({ webUrl }: { webUrl: string | null }) {
         <>
           <ThemePicker />
           <TextSizePicker />
+          {onRename ? <MenuItem label="Rename" onPress={() => close(onRename)} /> : null}
           {webUrl ? (
             <MenuItem
               label="Open in browser"

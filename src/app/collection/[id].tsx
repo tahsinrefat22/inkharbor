@@ -1,5 +1,5 @@
-import { router, Stack, useLocalSearchParams } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { ItemIcon } from "@/components/item-icon";
@@ -39,7 +39,25 @@ export default function CollectionScreen() {
     }),
     [id],
   );
-  const { data, error, loading, refreshing, offlineSince, reload: reloadContent } = useCachedLoader(load, cache);
+  const {
+    data,
+    error,
+    loading,
+    refreshing,
+    offlineSince,
+    reload: reloadContent,
+    refreshQuietly,
+  } = useCachedLoader(load, cache);
+  // Coming back, e.g. from a document renamed in the app, checks for changes.
+  const shownBefore = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (shownBefore.current) {
+        void refreshQuietly();
+      }
+      shownBefore.current = true;
+    }, [refreshQuietly]),
+  );
   // Refreshing also catches stars changed elsewhere, e.g. on the web.
   const { reload: reloadStars } = useStars();
   const reload = useCallback(async () => {

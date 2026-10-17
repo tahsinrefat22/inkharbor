@@ -172,6 +172,8 @@ export function documentHeadings(blocks: PMNode[]): DocumentHeading[] {
 export interface DocumentListHandle {
   /** Jumps to a top-level block, e.g. a heading from documentHeadings(). */
   scrollToBlock: (block: number) => void;
+  /** Scrolls back to the header, e.g. to rename the document. */
+  scrollToTop: () => void;
 }
 
 /** Space left above a heading the reader jumped to. */
@@ -273,6 +275,7 @@ export function DocumentList({
           listRef.current?.scrollToIndex({ index, animated: false, viewOffset: JUMP_MARGIN });
         }
       },
+      scrollToTop: () => listRef.current?.scrollToOffset({ offset: 0, animated: true }),
     }),
     [rows],
   );

@@ -7,6 +7,7 @@ import { CommentsButton } from "@/components/reader/comments-button";
 import { ContentsButton } from "@/components/reader/contents-button";
 import { DocumentMenu } from "@/components/reader/document-menu";
 import { DocumentList, documentHeadings, type DocumentListHandle } from "@/components/reader/document-body";
+import { TitleEditor } from "@/components/reader/title-editor";
 import { StarButton } from "@/components/star-button";
 import { refreshColors, useColors } from "@/constants/colors";
 import { OfflineNote } from "@/components/offline-note";
@@ -20,7 +21,7 @@ import { useTextScale } from "@/lib/text-size";
 import { openComments } from "@/lib/outline/comments";
 import { isNetworkError } from "@/lib/outline/api";
 import { getDocument, toSummary, type OutlineDocument } from "@/lib/outline/documents";
-import { EditConflictError, setChecked } from "@/lib/outline/edits";
+import { EditConflictError, renameDocument, setChecked } from "@/lib/outline/edits";
 
 export default function DocumentScreen() {
   const { id, title: initialTitle } = useLocalSearchParams<{ id: string; title?: string }>();
@@ -99,6 +100,25 @@ export default function DocumentScreen() {
   );
   const pendingCheckbox = useCallback((index: number) => pendingChecks.get(index), [pendingChecks]);
 
+  const [renaming, setRenaming] = useState(false);
+  const saveTitle = useCallback(
+    async (newTitle: string) => {
+      const current = latestDoc.current;
+      if (!current) {
+        return;
+      }
+      // Waits for checkbox saves, so they don't overwrite the new title.
+      await saves.current;
+      const saved = await renameDocument(requestWithPolicies, current.id, newTitle);
+      latestDoc.current = saved;
+      await mutate(saved);
+      setRenaming(false);
+      // Starred lists show the new title too.
+      void reloadStars();
+    },
+    [mutate, requestWithPolicies, reloadStars],
+  );
+
   const listRef = useRef<DocumentListHandle>(null);
   const scale = useTextScale();
   const headings = useMemo(() => documentHeadings(doc?.data.content ?? []), [doc]);
@@ -131,7 +151,17 @@ export default function DocumentScreen() {
                 target={doc ? { documentId: doc.id } : null}
                 document={doc ? toSummary(doc) : undefined}
               />
-              <DocumentMenu webUrl={doc && session ? `${session.server}${doc.url}` : null} />
+              <DocumentMenu
+                webUrl={doc && session ? `${session.server}${doc.url}` : null}
+                onRename={
+                  doc?.canUpdate
+                    ? () => {
+                        listRef.current?.scrollToTop();
+                        setRenaming(true);
+                      }
+                    : undefined
+                }
+              />
             </View>
           ),
         }}
@@ -150,15 +180,24 @@ export default function DocumentScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} {...refreshColors(colors)} />}
         header={
           <View style={styles.header}>
-            <View style={styles.titleRow}>
-              {doc?.icon ? <ItemIcon icon={doc.icon} color={doc.color} label={title} /> : null}
-              <Text
-                style={[styles.title, { color: colors.text, fontSize: 28 * scale }]}
-                accessibilityRole="header"
-              >
-                {title || "Untitled"}
-              </Text>
-            </View>
+            {renaming && doc ? (
+              <TitleEditor
+                title={doc.title}
+                fontSize={28 * scale}
+                onSave={saveTitle}
+                onCancel={() => setRenaming(false)}
+              />
+            ) : (
+              <View style={styles.titleRow}>
+                {doc?.icon ? <ItemIcon icon={doc.icon} color={doc.color} label={title} /> : null}
+                <Text
+                  style={[styles.title, { color: colors.text, fontSize: 28 * scale }]}
+                  accessibilityRole="header"
+                >
+                  {title || "Untitled"}
+                </Text>
+              </View>
+            )}
             {updated ? (
               <Text style={[styles.meta, { color: colors.muted, fontSize: 13 * scale }]}>{updated}</Text>
             ) : null}
