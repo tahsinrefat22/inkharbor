@@ -2,7 +2,7 @@
 
 An unofficial, open-source Android app for reading [Outline](https://www.getoutline.com) on your phone, mainly for self-hosted instances. It isn't affiliated with General Outline. Outline plans its own mobile app at some point; until then, this fills the gap.
 
-Status: early, at v0.6. It's mainly for reading: sign in to your server, browse collections and documents, search, keep starred and recent documents available offline, and take part in a document's comments. Documents can't be edited yet. Android only for now; iOS comes later.
+Status: early, at v0.7. It's mainly for reading: sign in to one or more servers, browse collections and documents, search, keep starred and recent documents available offline, and take part in a document's comments. Documents can't be edited yet. Android only for now; iOS comes later.
 
 ## Requirements
 
@@ -24,7 +24,8 @@ Updates install the same way, over the existing app, and keep you signed in.
 - Shows your collections and their document trees, and opens documents in a native reader. The reader handles everything Outline's editor can produce: headings, lists and checklists, tables, code, notices, toggles, images, attachments, videos, embeds, mentions and emoji (including your workspace's own). Videos play in the reader, maths is drawn as it is on the web, and attachments and embeds open in the browser.
 - The home screen has three tabs: Collections, Recent and Starred. Recent combines what you viewed in Outline's web or desktop app with what you opened in Inkharbor, since Outline doesn't record views from other apps. The star in a document's or collection's header stars or unstars it, the same stars as on the web.
 - Comments: the button in a document's header shows its comment threads, with the passage each one is on, on Open and Resolved tabs. You can comment, reply, react (with every emoji Outline offers, including your workspace's own), resolve and reopen threads, and edit or delete your comments (anyone's, for admins). The badge on the button counts comments you haven't seen yet. While the comments are open they refresh every few seconds, so comments made on the web show up by themselves: Outline's live updates only work with its own web login, so the app checks instead.
-- Opens Outline links shared to it. Share a document's link from the browser, a chat or anything else to Inkharbor and it opens in the reader; other links get the option to open in the browser. Tapping an Outline link in another app still opens the browser, because Android only sends web links to an app that was built for that exact domain.
+- Several servers: add another from the avatar menu and switch between them there. Each keeps its own offline copy, so switching shows that server's saved documents straight away, even offline.
+- Opens Outline links shared to it. Share a document's link from the browser, a chat or anything else to Inkharbor and it opens in the reader, switching to the right server first if you've added more than one; other links get the option to open in the browser. Tapping an Outline link in another app still opens the browser, because Android only sends web links to an app that was built for that exact domain.
 - Searches all documents from the box on the home screen. Results replace the collections while you type; clearing the box brings them back.
 - Works offline. The collection list, document trees, the 50 most recently opened documents and every starred document are kept on the phone, and lists mark the documents that are. Starred documents are downloaded in the background, so they're there even if you've never opened them on the phone.
 - Long documents stay fast: only what's on screen is drawn, including inside huge tables and lists, and a scroll handle on the right lets you jump anywhere. The list button in a document's header shows its headings and jumps to one.
@@ -34,7 +35,7 @@ Updates install the same way, over the existing app, and keep you signed in.
 
 Inkharbor signs in with OAuth and PKCE as a public client, so nobody has to create an OAuth app or share a secret. It opens your server's login page in the system browser, and whatever login your server uses (Google, Microsoft, Slack, an OIDC provider like Okta or Keycloak, email links, passkeys) happens there. The app never sees your password.
 
-You only do this once. After that the app opens straight into your account. Signing out locks the app instead of throwing the authorization away, and signing back in uses your phone's fingerprint, face or PIN, without the browser. Disconnect (in Settings) removes the app's access for real, for example before handing your phone to someone else. The browser is needed again only after a disconnect, after clearing the app's data, if the app isn't opened for 30 days (Outline's refresh tokens expire), or if an admin revokes access.
+You only do this once. After that the app opens straight into your account. Signing out locks the app instead of throwing the authorization away, and signing back in uses your phone's fingerprint, face or PIN, without the browser. Disconnect (in Settings) removes the app's access to the open server for real, along with its offline copy, for example before handing your phone to someone else. The browser is needed again only after a disconnect, after clearing the app's data, if the app isn't opened for 30 days (Outline's refresh tokens expire), or if an admin revokes access.
 
 For servers older than the requirement above, you can build the app with an HTTPS page that forwards the redirect (see `.env.example`). Signing in with a personal API key is planned as a simpler fallback.
 
@@ -69,9 +70,9 @@ Code layout:
 - `src/components/` other shared components, including the opening animation
 - `src/lib/outline/` the Outline API client and sign-in flow; `markdown.ts` turns rich text back into Markdown for editing
 - `src/lib/maths.ts` draws TeX maths as SVG with MathJax
-- `src/lib/session.ts` keeps the signed-in session in the platform keystore
+- `src/lib/session.ts` keeps each server's session in the platform keystore
 - `src/lib/stars.tsx` the user's stars, shared by the home screen and the star buttons
-- `src/lib/cache.ts` the offline copy (SQLite)
+- `src/lib/cache.ts` the offline copy (SQLite, one database per server)
 - `src/hooks/` loading with the offline copy, comments, recent documents and search
 - `assets/logo-source/` the logo's SVG sources; the PNGs in `assets/images/` are rendered from them
 - `scripts/generate-emoji-names.ts` rebuilds the emoji name table and the emoji picker's data (`bun run emoji-names`)
