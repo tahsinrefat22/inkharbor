@@ -38,13 +38,28 @@ export function normalizeServerUrl(server: string): string {
  * Calls an Outline API method. Outline's API is RPC style: every method is a
  * POST to /api/<method> with a JSON body.
  */
-export async function apiRequest<T>(
+/**
+ * What the user may do with a model, e.g. `abilities.update` for a document.
+ * An ability is true, or the ids of the memberships that grant it.
+ */
+export interface Policy {
+  id: string;
+  abilities: Record<string, boolean | string[]>;
+}
+
+/** A method's answer with the user's policies for the models in it. */
+export interface ApiResponse<T> {
+  data: T;
+  policies?: Policy[];
+}
+
+export async function apiCall<T>(
   server: string,
   token: string,
   method: string,
   body: object = {},
   headers: Record<string, string> = {},
-): Promise<T> {
+): Promise<ApiResponse<T>> {
   const res = await fetch(`${normalizeServerUrl(server)}/api/${method}`, {
     method: "POST",
     headers: {
@@ -58,7 +73,17 @@ export async function apiRequest<T>(
   if (!res.ok) {
     throw new OutlineApiError(res.status, json.message ?? `HTTP ${res.status}`);
   }
-  return json.data as T;
+  return { data: json.data as T, policies: json.policies };
+}
+
+export async function apiRequest<T>(
+  server: string,
+  token: string,
+  method: string,
+  body: object = {},
+  headers: Record<string, string> = {},
+): Promise<T> {
+  return (await apiCall<T>(server, token, method, body, headers)).data;
 }
 
 export interface AuthInfo {

@@ -1,6 +1,6 @@
 import { savedUpdatedAt, setStarredDocuments, writeDocument } from "@/lib/cache";
 
-import type { Request } from "./collections";
+import type { Request, RequestWithPolicies } from "./collections";
 import { getDocument, toSummary, type DocumentSummary } from "./documents";
 
 /** A star on a document or a collection. Exactly one of the two ids is set. */
@@ -63,7 +63,7 @@ export async function deleteStar(request: Request, id: string): Promise<void> {
  * lets go of documents that are no longer starred. Only documents that
  * changed since they were last saved are downloaded.
  */
-export async function saveStarredDocuments(request: Request, starred: Starred): Promise<void> {
+export async function saveStarredDocuments(request: RequestWithPolicies, starred: Starred): Promise<void> {
   const updatedAt = new Map(starred.documents.map((document) => [document.id, document.updatedAt]));
   // Stars on documents the user can no longer read come without details; skip those.
   const ids = starred.stars.flatMap((star) =>

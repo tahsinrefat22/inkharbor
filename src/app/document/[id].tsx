@@ -1,6 +1,6 @@
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { useCallback, useMemo, useRef } from "react";
-import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Alert, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { ItemIcon } from "@/components/item-icon";
 import { CommentsButton } from "@/components/reader/comments-button";
@@ -18,13 +18,15 @@ import { useAuth } from "@/lib/auth";
 import { useStars } from "@/lib/stars";
 import { useTextScale } from "@/lib/text-size";
 import { openComments } from "@/lib/outline/comments";
+import { isNetworkError } from "@/lib/outline/api";
 import { getDocument, toSummary, type OutlineDocument } from "@/lib/outline/documents";
+import { EditConflictError, setChecked } from "@/lib/outline/edits";
 
 export default function DocumentScreen() {
   const { id, title: initialTitle } = useLocalSearchParams<{ id: string; title?: string }>();
   const colors = useColors();
-  const { request, session } = useAuth();
-  const load = useCallback(() => getDocument(request, id), [request, id]);
+  const { requestWithPolicies, session } = useAuth();
+  const load = useCallback(() => getDocument(requestWithPolicies, id), [requestWithPolicies, id]);
   const cache = useMemo<CacheAdapter<OutlineDocument>>(
     () => ({
       read: () => readDocument(id),
@@ -32,7 +34,15 @@ export default function DocumentScreen() {
     }),
     [id],
   );
-  const { data: doc, error, loading, refreshing, offlineSince, reload: reloadContent } = useCachedLoader(load, cache);
+  const {
+    data: doc,
+    error,
+    loading,
+    refreshing,
+    offlineSince,
+    reload: reloadContent,
+    mutate,
+  } = useCachedLoader(load, cache);
   // `id` can be the urlId from a link; comments are kept by the real id.
   const comments = useComments(doc?.id ?? null);
   const hasOpenComments = useMemo(() => openComments(comments.data ?? []).length > 0, [comments.data]);
@@ -43,6 +53,51 @@ export default function DocumentScreen() {
   const reload = useCallback(async () => {
     await Promise.all([reloadContent(), reloadStars(), reloadComments()]);
   }, [reloadContent, reloadStars, reloadComments]);
+
+  // Checkboxes being saved, by their place in the document, with the state
+  // they're changing to. Saves run one after another, each on the document
+  // as the one before left it, so quick taps don't trip over each other.
+  const [pendingChecks, setPendingChecks] = useState<ReadonlyMap<number, boolean>>(new Map());
+  const latestDoc = useRef(doc);
+  useEffect(() => {
+    latestDoc.current = doc;
+  }, [doc]);
+  const saves = useRef<Promise<void>>(Promise.resolve());
+  const toggleCheckbox = useCallback(
+    (index: number, checked: boolean) => {
+      setPendingChecks((current) => new Map(current).set(index, checked));
+      saves.current = saves.current.then(async () => {
+        try {
+          const current = latestDoc.current;
+          if (current) {
+            const saved = await setChecked(requestWithPolicies, current, index, checked);
+            latestDoc.current = saved;
+            await mutate(saved);
+          }
+        } catch (err) {
+          if (err instanceof EditConflictError) {
+            await reloadContent();
+          }
+          Alert.alert(
+            "Checkbox not changed",
+            isNetworkError(err)
+              ? "Can't reach the server. Try again when you're online."
+              : err instanceof Error
+                ? err.message
+                : "Try again.",
+          );
+        } finally {
+          setPendingChecks((current) => {
+            const rest = new Map(current);
+            rest.delete(index);
+            return rest;
+          });
+        }
+      });
+    },
+    [mutate, requestWithPolicies, reloadContent],
+  );
+  const pendingCheckbox = useCallback((index: number) => pendingChecks.get(index), [pendingChecks]);
 
   const listRef = useRef<DocumentListHandle>(null);
   const scale = useTextScale();
@@ -89,6 +144,8 @@ export default function DocumentScreen() {
         colors={colors}
         openLink={openLink}
         openDocument={openDocument}
+        onToggleCheckbox={doc?.canUpdate ? toggleCheckbox : undefined}
+        pendingCheckbox={pendingCheckbox}
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} {...refreshColors(colors)} />}
         header={

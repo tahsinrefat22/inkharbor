@@ -1,4 +1,5 @@
-import type { Request } from "./collections";
+import type { ApiResponse } from "./api";
+import type { Request, RequestWithPolicies } from "./collections";
 
 /** A node of Outline's ProseMirror document JSON. */
 export interface PMNode {
@@ -20,6 +21,17 @@ export interface OutlineDocument {
   updatedBy: { name: string } | null;
   /** The document body as ProseMirror JSON. */
   data: PMNode;
+  /** Counts every saved change; edits send it so a stale one is refused. Missing in older saved copies. */
+  revision?: number;
+  /** Whether the user may edit it. Missing in older saved copies. */
+  canUpdate?: boolean;
+}
+
+/** The document with whether the user may edit it, from the answer's policies. */
+export function withAbilities(document: OutlineDocument, policies: ApiResponse<unknown>["policies"]): OutlineDocument {
+  const policy = policies?.find((p) => p.id === document.id);
+  const update = policy?.abilities.update;
+  return { ...document, canUpdate: Array.isArray(update) ? update.length > 0 : update === true };
 }
 
 /** A document's details for lists, without its body. */
@@ -63,13 +75,13 @@ export async function listViewedDocuments(request: Request, limit: number): Prom
  * `data` instead of Markdown, and from version 2 the response is wrapped as
  * { document }. `id` can be the UUID or the urlId from a document's link.
  */
-export async function getDocument(request: Request, id: string): Promise<OutlineDocument> {
-  const result = await request<{ document: OutlineDocument }>(
+export async function getDocument(request: RequestWithPolicies, id: string): Promise<OutlineDocument> {
+  const { data, policies } = await request<{ document: OutlineDocument }>(
     "documents.info",
     { id },
     { "x-api-version": "3" },
   );
-  return result.document;
+  return withAbilities(data.document, policies);
 }
 
 /**

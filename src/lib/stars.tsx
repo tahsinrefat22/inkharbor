@@ -43,7 +43,7 @@ function keyOf(target: StarTarget): string {
  * reading too.
  */
 export function StarsProvider({ children }: { children: ReactNode }) {
-  const { status, request, session } = useAuth();
+  const { status, request, requestWithPolicies, session } = useAuth();
   // Each account has its own stars; another account loads its own.
   const accountId = session?.id;
 
@@ -56,7 +56,7 @@ export function StarsProvider({ children }: { children: ReactNode }) {
       write: async (value) => {
         await writeEntry("stars", value);
         syncRef.current = syncRef.current
-          .then(() => saveStarredDocuments(request, value))
+          .then(() => saveStarredDocuments(requestWithPolicies, value))
           .catch(() => {
             // Offline or the server is busy; it runs again next time.
           });
@@ -64,7 +64,7 @@ export function StarsProvider({ children }: { children: ReactNode }) {
     }),
     // accountId: a new cache for another account, so its stars load afresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [request, accountId],
+    [requestWithPolicies, accountId],
   );
   const load = useCallback(() => listStars(request), [request]);
   const { data, loading, offlineSince, reload, mutate } = useCachedLoader(load, cache, status === "ready");

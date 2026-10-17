@@ -1,5 +1,13 @@
+import type { ApiResponse } from "./api";
+
 /** Calls an Outline API method as the signed-in user (see useAuth().request). */
 export type Request = <T>(method: string, body?: object, headers?: Record<string, string>) => Promise<T>;
+/** Like Request, with the user's policies for what came back. */
+export type RequestWithPolicies = <T>(
+  method: string,
+  body?: object,
+  headers?: Record<string, string>,
+) => Promise<ApiResponse<T>>;
 
 export interface Collection {
   id: string;

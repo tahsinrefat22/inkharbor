@@ -77,6 +77,34 @@ function useImageToken(): string {
 /** True inside table header cells, whose text is bold. */
 const HeaderCellContext = createContext(false);
 
+/** Ticking checkboxes, when the user may edit the document. */
+interface CheckboxActions {
+  toggle: (index: number, checked: boolean) => void;
+  /** The state a checkbox is being changed to while it's saved, else undefined. */
+  pendingState: (index: number) => boolean | undefined;
+}
+
+/** A checkbox item carries its place among the document's checkboxes. */
+type NumberedNode = PMNode & { checkboxIndex?: number };
+
+/**
+ * Copies the blocks with each checkbox item numbered in document order,
+ * sharing every part without checkboxes. Taps then say which checkbox they
+ * were by number, whichever copy of the document a row was drawn from.
+ */
+function numberCheckboxes(blocks: PMNode[]): PMNode[] {
+  let next = 0;
+  const number = (node: PMNode): PMNode => {
+    const index = node.type === "checkbox_item" ? next++ : undefined;
+    const content = node.content?.map(number);
+    const changed = index !== undefined || content?.some((child, i) => child !== node.content?.[i]);
+    return changed ? { ...node, content, ...(index !== undefined && { checkboxIndex: index }) } : node;
+  };
+  return blocks.map(number);
+}
+
+const CheckboxContext = createContext<CheckboxActions | null>(null);
+
 /** The font size of the text around inline content, which maths matches. */
 const FontSizeContext = createContext(16);
 
@@ -203,20 +231,37 @@ export function DocumentList({
   colors,
   openLink,
   openDocument,
+  onToggleCheckbox,
+  pendingCheckbox,
   ref,
 }: {
   ref?: Ref<DocumentListHandle>;
   blocks: PMNode[];
+  /**
+   * Makes checkboxes tappable; left out when the document can't be edited.
+   * Checkboxes are numbered in document order.
+   */
+  onToggleCheckbox?: (index: number, checked: boolean) => void;
+  /** The state the `index`th checkbox is being changed to while it's saved. */
+  pendingCheckbox?: (index: number) => boolean | undefined;
   header?: ReactElement;
   footer?: ReactElement | null;
   refreshControl?: ReactElement<RefreshControlProps>;
   contentContainerStyle?: StyleProp<ViewStyle>;
 } & ReaderContextValue & { accessToken: string }) {
   const scale = useTextScale();
-  const rows = useMemo(() => toRows(blocks, scale), [blocks, scale]);
+  const numbered = useMemo(() => numberCheckboxes(blocks), [blocks]);
+  const rows = useMemo(() => toRows(numbered, scale), [numbered, scale]);
   const { listProps, thumb } = useScrollThumb<Row>(colors);
   const listRef = useRef<FlatList<Row> | null>(null);
   const jumpAttempts = useRef(0);
+  const checkboxes = useMemo<CheckboxActions | null>(
+    () =>
+      onToggleCheckbox
+        ? { toggle: onToggleCheckbox, pendingState: pendingCheckbox ?? (() => undefined) }
+        : null,
+    [onToggleCheckbox, pendingCheckbox],
+  );
 
   useImperativeHandle(
     ref,
@@ -252,6 +297,7 @@ export function DocumentList({
       openLink={openLink}
       openDocument={openDocument}
     >
+      <CheckboxContext value={checkboxes}>
       <View style={styles.listFrame}>
         <Animated.FlatList
           {...listProps}
@@ -263,6 +309,8 @@ export function DocumentList({
           data={rows}
           keyExtractor={(row) => row.key}
           renderItem={({ item }) => <RowView row={item} />}
+          // Rows read ticking from context; redraw them when it changes.
+          extraData={checkboxes}
           ListHeaderComponent={header}
           ListFooterComponent={footer}
           refreshControl={refreshControl}
@@ -273,6 +321,7 @@ export function DocumentList({
         />
         {thumb}
       </View>
+      </CheckboxContext>
     </ReaderProvider>
   );
 }
@@ -639,29 +688,51 @@ function List({ node }: { node: PMNode }) {
 
 function ListItemView({ list, item, index }: { list: PMNode; item: PMNode; index: number }) {
   const { colors, scale } = useReader();
+  const context = useContext(CheckboxContext);
+  const checkboxIndex = (item as NumberedNode).checkboxIndex;
+  const checkboxes = checkboxIndex === undefined ? null : context;
+  const pending = checkboxIndex === undefined ? undefined : checkboxes?.pendingState(checkboxIndex);
   let marker: string;
   let checked = false;
   if (list.type === "checkbox_list") {
-    checked = attr(item, "checked") === true;
+    checked = pending ?? attr(item, "checked") === true;
     marker = checked ? "☑" : "☐";
   } else if (list.type === "ordered_list") {
     marker = `${(numberAttr(list, "order") ?? 1) + index}.`;
   } else {
     marker = "•";
   }
+  const isCheckbox = list.type === "checkbox_list";
+  const markerText = (
+    <Text
+      style={[
+        styles.marker,
+        markerSize(scale),
+        { color: isCheckbox && checkboxes ? colors.primary : colors.muted },
+        isCheckbox && { fontSize: 18 * scale },
+      ]}
+      accessibilityLabel={isCheckbox ? (checked ? "Done" : "Not done") : undefined}
+    >
+      {marker}
+    </Text>
+  );
   return (
     <View style={styles.listItem}>
-      <Text
-        style={[
-          styles.marker,
-          markerSize(scale),
-          { color: colors.muted },
-          list.type === "checkbox_list" && { fontSize: 18 * scale },
-        ]}
-        accessibilityLabel={list.type === "checkbox_list" ? (checked ? "Done" : "Not done") : undefined}
-      >
-        {marker}
-      </Text>
+      {isCheckbox && checkboxes && checkboxIndex !== undefined ? (
+        <Pressable
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked, busy: pending !== undefined }}
+          accessibilityLabel={checked ? "Done" : "Not done"}
+          onPress={() => checkboxes.toggle(checkboxIndex, !checked)}
+          disabled={pending !== undefined}
+          hitSlop={10}
+          style={({ pressed }) => [pressed && { opacity: 0.5 }, pending !== undefined && { opacity: 0.6 }]}
+        >
+          {markerText}
+        </Pressable>
+      ) : (
+        markerText
+      )}
       <View style={[styles.listBody, checked && styles.checked]}>
         <Blocks nodes={item.content ?? []} />
       </View>

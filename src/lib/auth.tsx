@@ -2,7 +2,7 @@ import * as LocalAuthentication from "expo-local-authentication";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { deleteCacheOf, switchCacheTo } from "@/lib/cache";
-import { apiRequest, getAuthInfo, OutlineApiError } from "@/lib/outline/api";
+import { apiCall, getAuthInfo, OutlineApiError, type ApiResponse } from "@/lib/outline/api";
 import { revokeTokens, signIn, SignInError } from "@/lib/outline/oauth";
 import {
   getAccessToken,
@@ -49,6 +49,8 @@ export type ConnectResult = { connected: true } | { connected: false; error?: st
 interface AuthContextValue extends AuthState {
   /** Calls an Outline API method as the signed-in user of the open account. */
   request: <T>(method: string, body?: object, headers?: Record<string, string>) => Promise<T>;
+  /** Like request, with the user's policies for what came back. */
+  requestWithPolicies: <T>(method: string, body?: object, headers?: Record<string, string>) => Promise<ApiResponse<T>>;
   /** Adds a server (or signs in to one again) and opens it. */
   connect: (server: string) => Promise<ConnectResult>;
   switchAccount: (id: string) => Promise<void>;
@@ -222,8 +224,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     openRef.current = open;
   }, [open]);
 
-  const request = useCallback(
-    async <T,>(method: string, body: object = {}, headers: Record<string, string> = {}): Promise<T> => {
+  const requestWithPolicies = useCallback(
+    async <T,>(method: string, body: object = {}, headers: Record<string, string> = {}): Promise<ApiResponse<T>> => {
       const session = sessionRef.current;
       if (!session) {
         throw new Error("Not signed in");
@@ -249,7 +251,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (fresh.accessToken !== session.accessToken) {
           update(fresh);
         }
-        const result = await apiRequest<T>(fresh.server, fresh.accessToken, method, body, headers);
+        const result = await apiCall<T>(fresh.server, fresh.accessToken, method, body, headers);
         stillOpen();
         return result;
       } catch (err) {
@@ -260,6 +262,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     },
     [update, removeAccount],
+  );
+
+  const request = useCallback(
+    async <T,>(method: string, body?: object, headers?: Record<string, string>): Promise<T> =>
+      (await requestWithPolicies<T>(method, body, headers)).data,
+    [requestWithPolicies],
   );
 
   useEffect(() => {
@@ -384,7 +392,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ ...state, request, connect, switchAccount, cancelSetup, lock, unlock, disconnect }}
+      value={{ ...state, request, requestWithPolicies, connect, switchAccount, cancelSetup, lock, unlock, disconnect }}
     >
       {children}
     </AuthContext.Provider>
