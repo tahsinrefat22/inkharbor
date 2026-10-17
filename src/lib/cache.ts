@@ -1,15 +1,16 @@
 import * as SQLite from "expo-sqlite";
 
-import type { DocumentSummary, OutlineDocument } from "@/lib/outline/documents";
+import type { DocumentSummary, OutlineDocument, PMNode } from "@/lib/outline/documents";
 import { FIRST_ACCOUNT_ID } from "@/lib/session";
 
 // An on-device copy of what the user has seen, so the app keeps working
 // offline: the collection list, each collection's tree, and documents (the
 // most recently opened ones plus every starred one). Each account has its
 // own database, deleted when the account is removed and when the app's data
-// is cleared.
+// is cleared. Edits made without a connection wait here too, until they can
+// be saved (see lib/pending-edits.tsx).
 
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 /** Non-starred documents kept, most recently opened first. */
 const RECENT_DOCUMENTS = 50;
 
@@ -88,9 +89,25 @@ export async function deleteCacheOf(accountId: string): Promise<void> {
 
 async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
   const row = await db.getFirstAsync<{ user_version: number }>("PRAGMA user_version");
-  if ((row?.user_version ?? 0) >= DATABASE_VERSION) {
+  const version = row?.user_version ?? 0;
+  if (version >= DATABASE_VERSION) {
     return;
   }
+  if (version < 1) {
+    await createTables(db);
+  }
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS pending_edits (
+      document_id TEXT PRIMARY KEY NOT NULL,
+      base TEXT NOT NULL,
+      edited TEXT NOT NULL,
+      saved_at INTEGER NOT NULL
+    );
+    PRAGMA user_version = ${DATABASE_VERSION};
+  `);
+}
+
+async function createTables(db: SQLite.SQLiteDatabase): Promise<void> {
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS entries (
@@ -108,7 +125,6 @@ async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
       starred INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS documents_url_id ON documents (url_id);
-    PRAGMA user_version = ${DATABASE_VERSION};
   `);
 }
 
@@ -257,10 +273,63 @@ export async function setStarredDocuments(ids: string[]): Promise<void> {
 /** Keeps starred documents and the most recently opened others. */
 async function pruneDocuments(db: SQLite.SQLiteDatabase): Promise<void> {
   await db.runAsync(
+    // Documents with edits waiting to be saved stay too.
     `DELETE FROM documents WHERE starred = 0 AND id NOT IN (
        SELECT id FROM documents WHERE starred = 0
        ORDER BY COALESCE(opened_at, 0) DESC, saved_at DESC LIMIT ?
-     )`,
+     ) AND id NOT IN (SELECT document_id FROM pending_edits)`,
     RECENT_DOCUMENTS,
   );
+}
+
+/** An edit made without a connection: the document as edited, and what it was made from. */
+export interface PendingEdit {
+  documentId: string;
+  base: PMNode;
+  edited: PMNode;
+  savedAt: number;
+}
+
+interface PendingEditRow {
+  document_id: string;
+  base: string;
+  edited: string;
+  saved_at: number;
+}
+
+const toPendingEdit = (row: PendingEditRow): PendingEdit => ({
+  documentId: row.document_id,
+  base: JSON.parse(row.base) as PMNode,
+  edited: JSON.parse(row.edited) as PMNode,
+  savedAt: row.saved_at,
+});
+
+export async function readPendingEdit(documentId: string): Promise<PendingEdit | null> {
+  const db = await database();
+  const row = await db.getFirstAsync<PendingEditRow>("SELECT * FROM pending_edits WHERE document_id = ?", documentId);
+  return row ? toPendingEdit(row) : null;
+}
+
+/** Every edit waiting to be saved, oldest first. */
+export async function pendingEdits(): Promise<PendingEdit[]> {
+  const db = await database();
+  const rows = await db.getAllAsync<PendingEditRow>("SELECT * FROM pending_edits ORDER BY saved_at");
+  return rows.map(toPendingEdit);
+}
+
+/** Keeps an edit until it can be saved; a later one for the same document replaces it. */
+export async function writePendingEdit(documentId: string, base: PMNode, edited: PMNode): Promise<void> {
+  const db = await database();
+  await db.runAsync(
+    "INSERT OR REPLACE INTO pending_edits (document_id, base, edited, saved_at) VALUES (?, ?, ?, ?)",
+    documentId,
+    JSON.stringify(base),
+    JSON.stringify(edited),
+    Date.now(),
+  );
+}
+
+export async function deletePendingEdit(documentId: string): Promise<void> {
+  const db = await database();
+  await db.runAsync("DELETE FROM pending_edits WHERE document_id = ?", documentId);
 }

@@ -9,6 +9,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { OpeningAnimation } from "@/components/opening-animation";
 import { useColors } from "@/constants/colors";
 import { AuthProvider } from "@/lib/auth";
+import { PendingEditsSync } from "@/lib/pending-edits";
 import { StarsProvider } from "@/lib/stars";
 import { applyThemePreference, loadThemePreference } from "@/lib/theme";
 
@@ -62,6 +63,7 @@ export default function RootLayout() {
       <ThemeProvider value={theme}>
         <AuthProvider>
           <StarsProvider>
+            <PendingEditsSync />
             <StatusBar style={dark ? "light" : "dark"} />
             <View style={styles.root}>
               <Stack
