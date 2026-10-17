@@ -1,7 +1,8 @@
-import { router, Stack, useLocalSearchParams } from "expo-router";
+import { router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, RefreshControl, StyleSheet, Text, View } from "react-native";
 
+import { DocumentEditor, type DocumentEditorHandle } from "@/components/editor/document-editor";
 import { ItemIcon } from "@/components/item-icon";
 import { CommentsButton } from "@/components/reader/comments-button";
 import { ContentsButton } from "@/components/reader/contents-button";
@@ -20,8 +21,12 @@ import { useStars } from "@/lib/stars";
 import { useTextScale } from "@/lib/text-size";
 import { openComments } from "@/lib/outline/comments";
 import { isNetworkError } from "@/lib/outline/api";
+import { emojiIcon } from "@/lib/outline/collections";
 import { getDocument, toSummary, type OutlineDocument } from "@/lib/outline/documents";
 import { EditConflictError, renameDocument, setChecked } from "@/lib/outline/edits";
+
+/** Documents the user can edit open in the editor; development builds only for now. */
+const EDITING = __DEV__;
 
 export default function DocumentScreen() {
   const { id, title: initialTitle } = useLocalSearchParams<{ id: string; title?: string }>();
@@ -42,8 +47,19 @@ export default function DocumentScreen() {
     refreshing,
     offlineSince,
     reload: reloadContent,
+    refreshQuietly,
     mutate,
   } = useCachedLoader(load, cache);
+  // Coming back, e.g. from the editor, shows what was saved.
+  const shownBefore = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (shownBefore.current) {
+        void refreshQuietly();
+      }
+      shownBefore.current = true;
+    }, [refreshQuietly]),
+  );
   // `id` can be the urlId from a link; comments are kept by the real id.
   const comments = useComments(doc?.id ?? null);
   const hasOpenComments = useMemo(() => openComments(comments.data ?? []).length > 0, [comments.data]);
@@ -120,6 +136,11 @@ export default function DocumentScreen() {
   );
 
   const listRef = useRef<DocumentListHandle>(null);
+  const editorRef = useRef<DocumentEditorHandle>(null);
+  // The editor falls back to the reader for documents it can't load exactly.
+  const [editorUnsupported, setEditorUnsupported] = useState(false);
+  const editing = EDITING && !!doc?.canUpdate && !editorUnsupported;
+  const onEditorUnsupported = useCallback(() => setEditorUnsupported(true), []);
   const scale = useTextScale();
   const headings = useMemo(() => documentHeadings(doc?.data.content ?? []), [doc]);
   const { openLink, openDocument } = useReaderLinks();
@@ -138,7 +159,9 @@ export default function DocumentScreen() {
             <View style={styles.headerActions}>
               <ContentsButton
                 headings={headings}
-                onSelect={(heading) => listRef.current?.scrollToBlock(heading.block)}
+                onSelect={(heading) =>
+                  editing ? editorRef.current?.scrollToBlock(heading.block) : listRef.current?.scrollToBlock(heading.block)
+                }
               />
               {doc ? (
                 <CommentsButton
@@ -175,47 +198,76 @@ export default function DocumentScreen() {
           ),
         }}
       />
-      <DocumentList
-        ref={listRef}
-        blocks={doc && session ? (doc.data.content ?? []) : []}
-        server={session?.server ?? ""}
-        accessToken={session?.accessToken ?? ""}
-        colors={colors}
-        openLink={openLink}
-        openDocument={openDocument}
-        onToggleCheckbox={doc?.canUpdate ? toggleCheckbox : undefined}
-        pendingCheckbox={pendingCheckbox}
-        contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} {...refreshColors(colors)} />}
-        header={
-          <View style={styles.header}>
-            {renaming && doc ? (
-              <TitleEditor
-                title={doc.title}
-                fontSize={28 * scale}
-                onSave={saveTitle}
-                onCancel={() => setRenaming(false)}
-              />
-            ) : (
-              <View style={styles.titleRow}>
-                {doc?.icon ? <ItemIcon icon={doc.icon} color={doc.color} label={title} /> : null}
-                <Text
-                  style={[styles.title, { color: colors.text, fontSize: 28 * scale }]}
-                  accessibilityRole="header"
-                >
-                  {title || "Untitled"}
-                </Text>
+      {editing && doc ? (
+        <DocumentEditor
+          key={doc.id}
+          ref={editorRef}
+          document={doc}
+          header={{ title, icon: emojiIcon(doc.icon), meta: updated }}
+          above={
+            renaming || offlineSince || error ? (
+              <View style={styles.above}>
+                {renaming ? (
+                  <TitleEditor
+                    title={doc.title}
+                    fontSize={22 * scale}
+                    onSave={saveTitle}
+                    onCancel={() => setRenaming(false)}
+                  />
+                ) : null}
+                <OfflineNote savedAt={offlineSince} />
+                {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
               </View>
-            )}
-            {updated ? (
-              <Text style={[styles.meta, { color: colors.muted, fontSize: 13 * scale }]}>{updated}</Text>
-            ) : null}
-            <OfflineNote savedAt={offlineSince} />
-            {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
-          </View>
-        }
-        footer={loading ? <ActivityIndicator style={styles.loading} color={colors.text} /> : null}
-      />
+            ) : null
+          }
+          onSaved={mutate}
+          onUnsupported={onEditorUnsupported}
+          onOpenLink={openLink}
+          onOpenDocument={openDocument}
+        />
+      ) : (
+        <DocumentList
+          ref={listRef}
+          blocks={doc && session ? (doc.data.content ?? []) : []}
+          server={session?.server ?? ""}
+          accessToken={session?.accessToken ?? ""}
+          colors={colors}
+          openLink={openLink}
+          openDocument={openDocument}
+          onToggleCheckbox={doc?.canUpdate ? toggleCheckbox : undefined}
+          pendingCheckbox={pendingCheckbox}
+          contentContainerStyle={styles.content}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} {...refreshColors(colors)} />}
+          header={
+            <View style={styles.header}>
+              {renaming && doc ? (
+                <TitleEditor
+                  title={doc.title}
+                  fontSize={28 * scale}
+                  onSave={saveTitle}
+                  onCancel={() => setRenaming(false)}
+                />
+              ) : (
+                <View style={styles.titleRow}>
+                  {doc?.icon ? <ItemIcon icon={doc.icon} color={doc.color} label={title} /> : null}
+                  <Text
+                    style={[styles.title, { color: colors.text, fontSize: 28 * scale }]}
+                    accessibilityRole="header"
+                  >
+                    {title || "Untitled"}
+                  </Text>
+                </View>
+              )}
+              {updated ? (
+                <Text style={[styles.meta, { color: colors.muted, fontSize: 13 * scale }]}>{updated}</Text>
+              ) : null}
+              <OfflineNote savedAt={offlineSince} />
+              {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
+            </View>
+          }
+          footer={loading ? <ActivityIndicator style={styles.loading} color={colors.text} /> : null}
+        />
+      )}
     </View>
   );
 }
@@ -223,6 +275,11 @@ export default function DocumentScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  above: {
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
   headerActions: {
     flexDirection: "row",

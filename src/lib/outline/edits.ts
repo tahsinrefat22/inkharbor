@@ -54,16 +54,20 @@ function occurrences(text: string, part: string): number {
 }
 
 /** The server's Markdown for the document, with the revision it belongs to. */
-async function serverMarkdown(request: RequestWithPolicies, id: string) {
+export async function serverMarkdown(request: RequestWithPolicies, id: string) {
   // Before API version 3, documents.info answers with Markdown.
   const { data } = await request<{ text: string; revision: number }>("documents.info", { id });
   return data;
 }
 
-async function patch(
+/**
+ * Applies one patch-mode edit, or replaces all the text with `editMode`
+ * "replace". A stale `lastRevision` throws EditConflictError.
+ */
+export async function patchDocument(
   request: RequestWithPolicies,
   id: string,
-  edit: { findText: string; text: string; lastRevision: number },
+  edit: { findText?: string; text: string; lastRevision: number; editMode?: "patch" | "replace" },
 ): Promise<OutlineDocument> {
   try {
     const { data, policies } = await request<OutlineDocument>(
@@ -122,7 +126,7 @@ export async function setChecked(
   while (occurrences(server.text, piece(from)) > 1 && from > 0) {
     from -= 1;
   }
-  return patch(request, document.id, {
+  return patchDocument(request, document.id, {
     findText: piece(from),
     text: piece(from, edited),
     lastRevision: server.revision,
