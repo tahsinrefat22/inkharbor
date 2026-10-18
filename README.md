@@ -84,4 +84,4 @@ Code layout:
 
 ## License
 
-MIT
+MIT. Parts adapted from other MIT-licensed projects are listed, with their notices, in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

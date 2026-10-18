@@ -8,9 +8,9 @@ import type { PMNode } from "@/lib/outline/documents";
 // Outline's Markdown and swaps in the new text (documents.update in patch
 // mode), so the old text has to match exactly.
 //
-// The writer follows prosemirror-markdown's original serializer (MIT),
-// which Outline's is a fork of, and Outline's rules for escaping and for
-// each node and mark. Anything it doesn't know throws UnsupportedContent,
+// The writer adapts prosemirror-markdown's original serializer (MIT, see
+// THIRD-PARTY-NOTICES.md), which Outline's is a fork of, and follows
+// Outline's rules for escaping and for each node and mark. Anything it doesn't know throws UnsupportedContent,
 // and that block can't be saved from the app.
 
 /** The content has something the app can't write as Outline's Markdown. */
