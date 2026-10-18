@@ -25,9 +25,6 @@ import { emojiIcon } from "@/lib/outline/collections";
 import { getDocument, toSummary, type OutlineDocument } from "@/lib/outline/documents";
 import { EditConflictError, renameDocument, setChecked } from "@/lib/outline/edits";
 
-/** Documents the user can edit open in the editor; development builds only for now. */
-const EDITING = __DEV__;
-
 export default function DocumentScreen() {
   const { id, title: initialTitle } = useLocalSearchParams<{ id: string; title?: string }>();
   const colors = useColors();
@@ -67,9 +64,12 @@ export default function DocumentScreen() {
   // Refreshing also catches stars changed elsewhere, e.g. on the web.
   const { reload: reloadStars } = useStars();
   const { reload: reloadComments } = comments;
+  const reloadOthers = useCallback(async () => {
+    await Promise.all([reloadStars(), reloadComments()]);
+  }, [reloadStars, reloadComments]);
   const reload = useCallback(async () => {
-    await Promise.all([reloadContent(), reloadStars(), reloadComments()]);
-  }, [reloadContent, reloadStars, reloadComments]);
+    await Promise.all([reloadContent(), reloadOthers()]);
+  }, [reloadContent, reloadOthers]);
 
   // Checkboxes being saved, by their place in the document, with the state
   // they're changing to. Saves run one after another, each on the document
@@ -137,9 +137,10 @@ export default function DocumentScreen() {
 
   const listRef = useRef<DocumentListHandle>(null);
   const editorRef = useRef<DocumentEditorHandle>(null);
-  // The editor falls back to the reader for documents it can't load exactly.
+  // Documents the user can edit open in the editor, which falls back to the
+  // reader for documents it can't load exactly.
   const [editorUnsupported, setEditorUnsupported] = useState(false);
-  const editing = EDITING && !!doc?.canUpdate && !editorUnsupported;
+  const editing = !!doc?.canUpdate && !editorUnsupported;
   const onEditorUnsupported = useCallback(() => setEditorUnsupported(true), []);
   const scale = useTextScale();
   const headings = useMemo(() => documentHeadings(doc?.data.content ?? []), [doc]);
@@ -224,6 +225,7 @@ export default function DocumentScreen() {
           onUnsupported={onEditorUnsupported}
           onOpenLink={openLink}
           onOpenDocument={openDocument}
+          onRefresh={reloadOthers}
         />
       ) : (
         <DocumentList

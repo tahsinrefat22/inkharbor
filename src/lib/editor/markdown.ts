@@ -1,5 +1,8 @@
 import type { Mark, Node } from "prosemirror-model";
 
+import { LOCKED_BLOCK } from "@/lib/editor/schema";
+import type { PMNode } from "@/lib/outline/documents";
+
 // Writes editor content as the Markdown Outline itself would write for it,
 // character for character. Saving finds the old text of a changed block in
 // Outline's Markdown and swaps in the new text (documents.update in patch
@@ -42,6 +45,8 @@ class MarkdownWriter {
   constructor(
     private readonly nodes: Record<string, NodeWriter>,
     private readonly marks: Record<string, MarkWriter>,
+    /** Writing new text for Outline to read, rather than matching its own Markdown. */
+    readonly newText = false,
   ) {}
 
   atBlank(): boolean {
@@ -294,11 +299,30 @@ function codeBlock(out: MarkdownWriter, node: Node) {
 
 const HEADING_LEVELS = [1, 2, 3, 4, 5, 6];
 
+/** How deep a node's tree goes: 0 for a leaf (text too). */
+function height(node: Node): number {
+  if (node.isLeaf) {
+    return 0;
+  }
+  let deepest = 0;
+  node.forEach((child) => {
+    deepest = Math.max(deepest, height(child));
+  });
+  return 1 + deepest;
+}
+
 const NODES: Record<string, NodeWriter> = {
   paragraph(out, node) {
     // Outline keeps empty paragraphs as a backslash line.
     if (node.textContent.trim() === "" && node.childCount === 0) {
-      out.write("\\\n");
+      if (out.newText) {
+        // Outline reads "\" as an empty paragraph only when it's a paragraph
+        // of its own; followed by a line of text, it's a line break.
+        out.write("\\");
+        out.closeBlock(node);
+      } else {
+        out.write("\\\n");
+      }
     } else {
       out.renderInline(node);
       out.closeBlock(node);
@@ -348,6 +372,14 @@ const NODES: Record<string, NodeWriter> = {
   list_item(out, node) {
     out.renderContent(node);
   },
+  // Between fences of +, longer for deeper content so nested toggles nest.
+  // Outline doesn't close the block, so what follows comes on the next line.
+  container_toggle(out, node) {
+    const fence = "+".repeat(3 + height(node));
+    out.write(`${fence}\n`);
+    out.renderContent(node);
+    out.write(`${fence}\n`);
+  },
   checkbox_list(out, node) {
     out.renderList(node, "  ", () => "- ");
   },
@@ -357,6 +389,40 @@ const NODES: Record<string, NodeWriter> = {
   },
   br(out) {
     out.write("\\n");
+  },
+  // Outline puts a space before an image, except at the start of a list
+  // item, and its title, layout and size in the link title. Reading the
+  // space back keeps it, so new text leaves it out after a space or new line.
+  image(out, node) {
+    const { alt, src, source, layoutClass, title, width, height } = node.attrs;
+    let markdown = out.inList || (out.newText && /(^|\s)$/.test(out.out)) ? "" : " ";
+    markdown += `![${out.esc(String(alt || "").replace("\n", ""))}](${out.esc(String(src || ""))}`;
+    const titleParts: string[] = [];
+    if (source) {
+      titleParts.push(`source=${source}`);
+    }
+    if (layoutClass) {
+      titleParts.push(String(layoutClass));
+    } else if (title) {
+      titleParts.push(String(title));
+    }
+    const size =
+      width || height ? ` =${out.esc(width ? String(width) : "")}x${out.esc(height ? String(height) : "")}` : "";
+    if (titleParts.length || size) {
+      markdown += ` "${out.esc(titleParts.join(" "))}${size}"`;
+    }
+    out.write(`${markdown})`);
+  },
+  // Blocks the editor can't edit, written from the JSON they carry.
+  [LOCKED_BLOCK](out, node) {
+    const locked = JSON.parse(String(node.attrs.json)) as PMNode;
+    const attrs = locked.attrs ?? {};
+    if (locked.type !== "video") {
+      throw new UnsupportedContent(locked.type);
+    }
+    out.ensureNewLine();
+    out.write(`[${attrs.title} ${attrs.width ?? ""}x${attrs.height ?? ""}](${attrs.src})\n\n`);
+    out.ensureNewLine();
   },
   text(out, node) {
     out.text(node.text ?? "");
@@ -411,9 +477,13 @@ const MARKS: Record<string, MarkWriter> = {
   highlight: emphasis("=="),
 };
 
-/** The Markdown Outline writes for the blocks in `node` (e.g. a whole document). */
-export function toMarkdown(node: Node): string {
-  const out = new MarkdownWriter(NODES, MARKS);
+/**
+ * The Markdown Outline writes for the blocks in `node` (e.g. a whole
+ * document). With `newText`, Markdown for Outline to read instead, which
+ * avoids quirks that don't survive being read back.
+ */
+export function toMarkdown(node: Node, { newText = false }: { newText?: boolean } = {}): string {
+  const out = new MarkdownWriter(NODES, MARKS, newText);
   out.renderContent(node);
   return out.out;
 }

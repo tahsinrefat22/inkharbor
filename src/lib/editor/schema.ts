@@ -70,6 +70,13 @@ const NODES: Record<string, NodeSpec> = {
     toDOM: (node) => ["ol", { start: String(node.attrs.order ?? 1) }, 0],
   }),
   list_item: { content: "paragraph block*", defining: true, toDOM: () => ["li", 0] },
+  // The first block is the summary; the rest folds away (see rich-editor.tsx).
+  container_toggle: block({
+    content: "(paragraph | heading) block*",
+    defining: true,
+    attrs: { id: { default: null } },
+    toDOM: () => ["div", { class: "toggle-block" }, 0],
+  }),
   checkbox_list: block({ content: "checkbox_item+", toDOM: () => ["ul", { class: "checklist" }, 0] }),
   checkbox_item: {
     content: "paragraph block*",
@@ -93,6 +100,15 @@ const NODES: Record<string, NodeSpec> = {
     ],
   }),
   image: inlineAtom({
+    attrs: {
+      src: { default: null },
+      alt: { default: null },
+      title: { default: null },
+      width: { default: null },
+      height: { default: null },
+      layoutClass: { default: null },
+      source: { default: null },
+    },
     toDOM: (node) => locked("span", "image-wrap", imageHtml({ type: "image", attrs: node.attrs })),
   }),
   [LOCKED_BLOCK]: block({

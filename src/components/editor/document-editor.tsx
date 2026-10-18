@@ -12,7 +12,7 @@ import {
   type Ref,
 } from "react";
 import { Alert, AppState, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
+import { KeyboardController, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -27,6 +27,7 @@ import { useAuth } from "@/lib/auth";
 import { deletePendingEdit, readPendingEdit, writePendingEdit } from "@/lib/cache";
 import { imageSources } from "@/lib/editor/render-html";
 import { CannotSave, SaveConflict, sameContent, saveDocument } from "@/lib/editor/save";
+import { uploadAttachment } from "@/lib/outline/attachments";
 import { getDocument, resolveAttachmentUrl, type OutlineDocument, type PMNode } from "@/lib/outline/documents";
 import { EditConflictError } from "@/lib/outline/edits";
 import { isUnreachable, markOpenInEditor } from "@/lib/pending-edits";
@@ -67,6 +68,7 @@ const TOOLS: { command: EditorCommand; label: string; active?: string }[] = [
   { command: "orderedList", label: "1.", active: "ordered_list" },
   { command: "checkList", label: "☑", active: "checkbox_list" },
   { command: "quote", label: "❝", active: "blockquote" },
+  { command: "toggle", label: "▸", active: "container_toggle" },
   { command: "outdent", label: "⇤" },
   { command: "indent", label: "⇥" },
 ];
@@ -74,6 +76,7 @@ const TOOLS: { command: EditorCommand; label: string; active?: string }[] = [
 type Status =
   | { kind: "idle" }
   | { kind: "saving" }
+  | { kind: "uploading"; name: string }
   | { kind: "note"; message: string }
   | { kind: "offline" }
   /** Saving stopped until the next change; `reload` offers to start over from the server's copy. */
@@ -91,6 +94,7 @@ export function DocumentEditor({
   onUnsupported,
   onOpenLink,
   onOpenDocument,
+  onRefresh,
   ref,
 }: {
   /** The latest copy of the document; the editor starts from the first. */
@@ -103,6 +107,8 @@ export function DocumentEditor({
   onUnsupported: () => void;
   onOpenLink: (href: string) => void;
   onOpenDocument: (documentId: string) => void;
+  /** Pulled down to refresh: whatever else the screen shows (the document itself is reloaded here). */
+  onRefresh: () => Promise<void>;
   ref?: Ref<DocumentEditorHandle>;
 }) {
   const colors = useColors();
@@ -132,9 +138,10 @@ export function DocumentEditor({
   const [saveRequest, setSaveRequest] = useState(0);
   const [scrollTo, setScrollTo] = useState<EditorRequests["scrollTo"]>(null);
   const [blurRequest, setBlurRequest] = useState(0);
+  const [insert, setInsert] = useState<EditorRequests["insert"]>(null);
   const requests = useMemo<EditorRequests>(
-    () => ({ command, save: saveRequest, scrollTo, blur: blurRequest }),
-    [command, saveRequest, scrollTo, blurRequest],
+    () => ({ command, save: saveRequest, scrollTo, blur: blurRequest, insert }),
+    [command, saveRequest, scrollTo, blurRequest, insert],
   );
   const run = useCallback(
     (name: EditorCommand) => setCommand((current) => ({ name, seq: (current?.seq ?? 0) + 1 })),
@@ -225,27 +232,62 @@ export function DocumentEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opened.content, session?.server]);
 
+  /** Shows the server's copy in a new editor. */
+  const showDocument = useCallback((fresh: OutlineDocument) => {
+    setOpened((current) => ({ content: fresh.data, generation: current.generation + 1 }));
+    baseRef.current = fresh.data;
+    setBase(fresh.data);
+    setChanges(0);
+    setSavedChanges(0);
+    setFailedAt(null);
+    setStatus({ kind: "idle" });
+  }, []);
+
   /** Starts over from the server's copy; `quietly` skips telling about failures. */
   const reloadFromServer = useCallback(
     async (quietly = false) => {
       try {
         const fresh = await getDocument(requestWithPolicies, document.id);
         onSaved(fresh);
-        setOpened((current) => ({ content: fresh.data, generation: current.generation + 1 }));
-        baseRef.current = fresh.data;
-        setBase(fresh.data);
-        setChanges(0);
-        setSavedChanges(0);
-        setFailedAt(null);
-        setStatus({ kind: "idle" });
+        showDocument(fresh);
       } catch {
         if (!quietly) {
           Alert.alert("Couldn't reload", "Can't reach the server. Try again when you're online.");
         }
       }
     },
-    [document.id, onSaved, requestWithPolicies],
+    [document.id, onSaved, requestWithPolicies, showDocument],
   );
+
+  // Pulling the page down shows changes made elsewhere. Changes not saved yet
+  // are saved instead, since a reload would lose them.
+  const [refreshing, setRefreshing] = useState(false);
+  const hasUnsaved = useRef(false);
+  useEffect(() => {
+    hasUnsaved.current = unsaved || saving || offlineEdits.current;
+  }, [unsaved, saving]);
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      if (hasUnsaved.current) {
+        requestSave();
+      } else {
+        const fresh = await getDocument(requestWithPolicies, document.id);
+        onSaved(fresh);
+        if (!sameContent(fresh.data, baseRef.current)) {
+          showDocument(fresh);
+        }
+      }
+      await onRefresh();
+    } catch (err) {
+      setStatus({
+        kind: "note",
+        message: isUnreachable(err) ? "Can't reach the server to refresh." : "Couldn't refresh this document.",
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  }, [document.id, onRefresh, onSaved, requestSave, requestWithPolicies, showDocument]);
 
   const onSave = useCallback(
     async (edited: PMNode, count: number) => {
@@ -271,8 +313,7 @@ export function DocumentEditor({
             : null,
         ].filter((note) => note !== null);
         setStatus(notes.length ? { kind: "note", message: notes.join(" ") } : { kind: "idle" });
-      } catch (err) {
-        // Leaving waits for this save, unless it can't be saved after all.
+      } catch (err) {        // Leaving waits for this save, unless it can't be saved after all.
         const leave = leaveAction.current;
         leaveAction.current = null;
         if (isUnreachable(err)) {
@@ -361,6 +402,58 @@ export function DocumentEditor({
     }
   }, [unsaved, saving, navigation]);
 
+  // A photo or video from the phone: uploaded to Outline, then put in.
+  async function addMedia() {
+    if (!session) {
+      return;
+    }
+    let picker: typeof import("expo-image-picker");
+    try {
+      picker = await import("expo-image-picker");
+    } catch {
+      Alert.alert("Not in this version", "Adding photos and videos needs a newer build of the app.");
+      return;
+    }
+    // Android closes the keyboard behind the picker without telling the
+    // toolbar, which then floats where the keyboard was. Close it first.
+    setBlurRequest((current) => current + 1);
+    await KeyboardController.dismiss();
+    const picked = await picker.launchImageLibraryAsync({ mediaTypes: ["images", "videos"], quality: 1 });
+    const asset = picked.canceled ? null : picked.assets[0];
+    if (!asset) {
+      return;
+    }
+    const video = asset.type === "video";
+    const name = asset.fileName ?? (video ? "video.mp4" : "image.jpg");
+    setStatus({ kind: "uploading", name });
+    try {
+      const src = await uploadAttachment(requestWithPolicies, session.server, document.id, {
+        uri: asset.uri,
+        name,
+        type: asset.mimeType ?? (video ? "video/mp4" : "image/jpeg"),
+        size: asset.fileSize,
+      });
+      if (!video) {
+        // The web view shows it from a signed URL, like the document's other images.
+        const url = await resolveAttachmentUrl(src, session.server, session.accessToken).catch(() => null);
+        if (url) {
+          setImages((current) => ({ ...current, [src]: url }));
+        }
+      }
+      const node: PMNode = video
+        ? { type: "video", attrs: { id: null, src, title: name, width: asset.width || null, height: asset.height || null } }
+        : { type: "image", attrs: { src, alt: null } };
+      setInsert((current) => ({ node, seq: (current?.seq ?? 0) + 1 }));
+      setStatus({ kind: "idle" });
+    } catch (err) {      setStatus({
+        kind: "error",
+        message: isUnreachable(err)
+          ? "Can't upload without a connection."
+          : `Couldn't upload ${name}: ${err instanceof Error ? err.message : "something went wrong"}`,
+      });
+    }
+  }
+
   const onReady = useCallback(
     async (report: { roundTrip: boolean; error: string | null }) => {
       if (report.error || !report.roundTrip) {
@@ -386,11 +479,13 @@ export function DocumentEditor({
   const statusText =
     status.kind === "saving"
       ? "Saving…"
-      : status.kind === "offline"
-        ? "Offline. Your changes are kept on this phone and saved when you're back online."
-        : status.kind === "note" || status.kind === "error"
-          ? status.message
-          : null;
+      : status.kind === "uploading"
+        ? `Uploading ${status.name}…`
+        : status.kind === "offline"
+          ? "Offline. Your changes are kept on this phone and saved when you're back online."
+          : status.kind === "note" || status.kind === "error"
+            ? status.message
+            : null;
 
   // A note goes away after a while; errors stay until something changes.
   useEffect(() => {
@@ -433,6 +528,8 @@ export function DocumentEditor({
             onFocusChange={onFocusChange}
             onOpenLink={openLink}
             onOpenDocument={openDocument}
+            refreshing={refreshing}
+            onRefresh={refresh}
             dom={EDITOR_DOM}
           />
         )}
@@ -445,6 +542,15 @@ export function DocumentEditor({
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.toolbarContent}
           >
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Add a photo or video"
+              disabled={status.kind === "uploading"}
+              onPress={addMedia}
+              style={({ pressed }) => [styles.tool, (pressed || status.kind === "uploading") && { opacity: 0.4 }]}
+            >
+              <Text style={[styles.toolLabel, { color: colors.text }]}>🖼</Text>
+            </Pressable>
             {TOOLS.map((tool) => {
               const on = tool.active !== undefined && active.has(tool.active);
               const disabled =

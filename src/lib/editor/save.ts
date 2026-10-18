@@ -62,7 +62,7 @@ interface Located {
   end: number;
 }
 
-const CONTAINERS = new Set(["bullet_list", "ordered_list", "checkbox_list", "blockquote"]);
+const CONTAINERS = new Set(["bullet_list", "ordered_list", "checkbox_list", "blockquote", "container_toggle"]);
 
 /**
  * A block as far as the Markdown is concerned: comment marks, attributes
@@ -173,7 +173,15 @@ function changes(before: string[], after: string[]): Change[] {
 /** Finds each block's Markdown in order; null for blocks that can't be written or found. */
 function locate(markdown: string, blocks: Node[]): (Located | null)[] {
   let cursor = 0;
+  // The end of the block before, when it was found.
+  let previousEnd: number | null = null;
   return blocks.map((block) => {
+    const found = locateBlock(block);
+    previousEnd = found?.end ?? null;
+    return found;
+  });
+
+  function locateBlock(block: Node): Located | null {
     let text: string;
     try {
       text = blockMarkdown(block);
@@ -182,6 +190,28 @@ function locate(markdown: string, blocks: Node[]): (Located | null)[] {
         return null;
       }
       throw err;
+    }
+    if (text === "\\" && previousEnd !== null) {
+      // An empty paragraph. Outline writes "\" on a line of its own, right
+      // after the block before, but newer versions send most of those out
+      // as a blank line: one newline more than between other blocks. That
+      // is found as an empty stretch at the start of the blank line.
+      for (const gap of ["\n\n", "\n"]) {
+        const at = previousEnd + gap.length;
+        if (markdown.startsWith(`${gap}\\`, previousEnd) && (at + 1 === markdown.length || markdown[at + 1] === "\n")) {
+          cursor = at + 1;
+          return { start: at, end: at + 1 };
+        }
+      }
+      if (markdown.startsWith("\n\n\n", previousEnd)) {
+        cursor = previousEnd + 2;
+        return { start: cursor, end: cursor };
+      }
+      if (previousEnd === markdown.length) {
+        // At the end, where the blank line is trimmed off.
+        return { start: previousEnd, end: previousEnd };
+      }
+      return null;
     }
     // A whole block starts and ends a line; text inside a table cell doesn't.
     for (let at = markdown.indexOf(text, cursor); at !== -1; at = markdown.indexOf(text, at + 1)) {
@@ -192,7 +222,25 @@ function locate(markdown: string, blocks: Node[]): (Located | null)[] {
       }
     }
     return null;
-  });
+  }
+}
+
+/**
+ * The Markdown Outline finds patch text in. Newer versions send empty
+ * paragraphs out as blank lines (found as empty stretches by `locate`), but
+ * patches are matched against the "\" Outline writes for them internally.
+ */
+function internalMarkdown(markdown: string, blocks: Node[]): string {
+  let result = markdown;
+  const empty = locate(markdown, blocks).filter((found) => found !== null && found.start === found.end);
+  for (const { start } of empty.reverse() as Located[]) {
+    if (start === markdown.length) {
+      result += result.endsWith("\\") ? "\n\\" : "\n\n\\";
+    } else {
+      result = `${result.slice(0, start)}\\${result.slice(start)}`;
+    }
+  }
+  return result;
 }
 
 function hasFormatting(block: Node): boolean {
@@ -386,7 +434,7 @@ function markdownOf(schema: Schema, blocks: readonly Node[]): string {
   if (!blocks.length) {
     return "";
   }
-  return toMarkdown(schema.node("doc", null, blocks)).replace(/^\n+|\n+$/g, "");
+  return toMarkdown(schema.node("doc", null, blocks), { newText: true }).replace(/^\n+|\n+$/g, "");
 }
 
 /** Where `at`'s preceding blank lines start. */
@@ -421,7 +469,7 @@ function merged(list: Change[]): Change[] {
  * Markdown, in the order to send them. Throws CannotSave when the change
  * can't be made safely.
  */
-export function planPatches(before: PMNode, after: PMNode, markdown: string): TextPatch[] {
+export function planPatches(before: PMNode, after: PMNode, sentMarkdown: string): TextPatch[] {
   const { schema } = prepareDocument({ type: "doc", content: [...(before.content ?? []), ...(after.content ?? [])] });
   const oldDoc = Node.fromJSON(schema, lockDocument(before));
   const newDoc = Node.fromJSON(schema, lockDocument(after));
@@ -429,6 +477,7 @@ export function planPatches(before: PMNode, after: PMNode, markdown: string): Te
   const newBlocks: Node[] = [];
   oldDoc.forEach((block) => oldBlocks.push(block));
   newDoc.forEach((block) => newBlocks.push(block));
+  const markdown = internalMarkdown(sentMarkdown, oldBlocks);
   const oldKeys = (before.content ?? []).map(blockKey);
   const newKeys = (after.content ?? []).map(blockKey);
   const located = locate(markdown, oldBlocks);
@@ -528,6 +577,17 @@ export function planPatches(before: PMNode, after: PMNode, markdown: string): Te
         patch = { findText: markdown.slice(0, end), text: text + markdown.slice(last.end, end) };
       } else {
         return [{ replaceAll: markdownOf(schema, newBlocks) }];
+      }
+
+      // A blank line must stay between the new text and the next block;
+      // ending at an empty paragraph sent as a blank line can leave one newline.
+      let next = end;
+      while (markdown[next] === "\n") {
+        next++;
+      }
+      if ("findText" in patch && next < markdown.length && next - end < 2 && !patch.text.endsWith("\n")) {
+        patch = { findText: markdown.slice(start, next), text: `${patch.text}\n\n` };
+        end = next;
       }
 
       // Outline changes the first place the text appears; take in the block
@@ -672,8 +732,7 @@ export async function saveDocument(
   // after an edit), so only different content means someone else edited.
   const changedElsewhere = contentKey(theirs) !== contentKey(base);
   const target = changedElsewhere ? mergeEdits(base, edited, theirs) : edited;
-  const patches = planPatches(theirs, target, current.markdown);
-  let document = current.document;
+  const patches = planPatches(theirs, target, current.markdown);  let document = current.document;
   let revision = current.revision;
   for (const patch of patches) {
     document = await patchDocument(

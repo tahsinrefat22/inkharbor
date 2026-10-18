@@ -126,7 +126,9 @@ export async function resolveAttachmentUrl(
     method: "HEAD",
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  return res.redirected ? res.url : url;
+  // The URL reached, not `redirected`: Expo's fetch on Android reports that
+  // as false once the redirects have been followed.
+  return res.url || url;
 }
 
 export interface SearchResult {
