@@ -47,6 +47,8 @@ export default function Settings() {
       <Text style={[styles.note, { color: colors.muted }]}>
         {"Use this to remove the app's access, for example before giving your phone to someone else. For everyday use, Sign out is enough."}
       </Text>
+      <View style={styles.spacer} />
+      <Button title="Open-source licences" onPress={() => router.push("/licenses")} />
     </View>
   );
 }

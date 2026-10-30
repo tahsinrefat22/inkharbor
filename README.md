@@ -81,7 +81,8 @@ Code layout:
 - `assets/logo-source/` the logo's SVG sources; the PNGs in `assets/images/` are rendered from them
 - `scripts/generate-emoji-names.ts` rebuilds the emoji name table and the emoji picker's data (`bun run emoji-names`)
 - `scripts/download-apk.ts` downloads a release build with a proper name (`bun run apk`)
+- `scripts/generate-licenses.ts` lists the licences of everything a release build contains, for the app's licences screen and `THIRD-PARTY-LICENSES.txt` (`bun run licenses`, with the same JDK and Android SDK as a local build). Run it before a release when dependencies have changed
 
 ## License
 
-MIT. Parts adapted from other MIT-licensed projects are listed, with their notices, in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+MIT. Parts adapted from other MIT-licensed projects are listed, with their notices, in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). The app is built with other open-source software, whose licences are in [THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt) and in the app under Settings > Open-source licences.

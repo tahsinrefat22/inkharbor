@@ -63,7 +63,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "emoji-names": "bun scripts/generate-emoji-names.ts",
-    "apk": "bun scripts/download-apk.ts"
+    "apk": "bun scripts/download-apk.ts",
+    "licenses": "bun scripts/generate-licenses.ts"
   },
   "private": true,
   "license": "MIT"
