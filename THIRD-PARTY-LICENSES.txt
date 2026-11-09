@@ -1,4 +1,4 @@
-Inkharbor 0.9.1: third-party licences
+Inkharbor 0.9.2: third-party licences
 
 Inkharbor is MIT licensed (see LICENSE). The Android app is built with the
 software below, under these licences. The same list is in the app, under
