@@ -1,6 +1,6 @@
 import { router, Stack } from "expo-router";
 import { useState } from "react";
-import { Alert, StyleSheet, Text, View } from "react-native";
+import { Alert, Platform, StyleSheet, Text, ToastAndroid, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 
 import { Button } from "@/components/button";
@@ -16,17 +16,20 @@ export default function Settings() {
   const others = sessions.filter((other) => other.id !== session?.id);
   const [busy, setBusy] = useState(false);
   const [headers, setHeaders] = useState<HeaderList>(() => savedHeaders(session?.server ?? ""));
-  const [headersNote, setHeadersNote] = useState<{ text: string; error: boolean } | null>(null);
+  // Shown until the headers are changed; a successful save is a toast instead.
+  const [headersError, setHeadersError] = useState<string | null>(null);
 
   async function saveHeaders() {
     const checked = checkHeaders(headers);
     if ("error" in checked) {
-      setHeadersNote({ text: checked.error, error: true });
+      setHeadersError(checked.error);
       return;
     }
     await setServerHeaders(session?.server ?? "", checked.headers);
     setHeaders(checked.headers);
-    setHeadersNote({ text: checked.headers.length ? "Saved." : "Removed.", error: false });
+    if (Platform.OS === "android") {
+      ToastAndroid.show(checked.headers.length ? "Headers saved" : "Headers removed", ToastAndroid.SHORT);
+    }
   }
 
   async function handleDisconnect() {
@@ -77,13 +80,11 @@ export default function Settings() {
         rows={headers}
         onChange={(rows) => {
           setHeaders(rows);
-          setHeadersNote(null);
+          setHeadersError(null);
         }}
       />
       <Button title="Save headers" onPress={saveHeaders} />
-      {headersNote ? (
-        <Text style={[styles.note, { color: headersNote.error ? colors.danger : colors.muted }]}>{headersNote.text}</Text>
-      ) : null}
+      {headersError ? <Text style={[styles.note, { color: colors.danger }]}>{headersError}</Text> : null}
       <View style={styles.spacer} />
       <Button title="Disconnect" variant="danger" onPress={handleDisconnect} busy={busy} />
       <Text style={[styles.note, { color: colors.muted }]}>
