@@ -37,13 +37,31 @@ Updates install the same way, over the existing app, and keep you signed in.
 
 Inkharbor signs in with OAuth and PKCE as a public client, so nobody has to create an OAuth app or share a secret. It opens your server's login page in the system browser, and whatever login your server uses (Google, Microsoft, Slack, an OIDC provider like Okta or Keycloak, email links, passkeys) happens there. The app never sees your password.
 
-You only do this once. After that the app opens straight into your account. Signing out locks the app instead of throwing the authorization away, and signing back in uses your phone's fingerprint, face or PIN, without the browser. Disconnect (in Settings) removes the app's access to the open server for real, along with its offline copy, for example before handing your phone to someone else. The browser is needed again only after a disconnect, after clearing the app's data, if the app isn't opened for 30 days (Outline's refresh tokens expire), or if an admin revokes access.
+You only do this once. After that the app opens straight into your account. Signing out locks the app instead of throwing the authorization away, and signing back in uses your phone's fingerprint, face or PIN, without the browser. Disconnect (in Settings) removes the app's access to the open server for real, along with its offline copy, for example before handing your phone to someone else. The browser is needed again only after a disconnect, after clearing the app's data, if the app isn't opened for 30 days (Outline's refresh tokens expire), or if an admin revokes access. When the server ends the app's access like that, the offline copy is deleted, but edits made offline that weren't saved yet stay on the phone for 30 days and are saved once you sign in again as the same user. Disconnect warns before deleting such edits.
 
 For servers older than the requirement above, you can build the app with an HTTPS page that forwards the redirect (see `.env.example`). Signing in with a personal API key is planned as a simpler fallback.
 
+The server address has to use HTTPS; if you leave out `https://`, the app adds it. Before it opens the browser, the app checks that the server names itself with the address you entered and that every sign-in endpoint it lists is on that address. Requests to the server never follow redirects, so a sign-in code or token can't be sent on to another host.
+
+## Behind an access proxy
+
+If your Outline server sits behind a proxy that asks for a browser login, such as Cloudflare Access, the app can't get past that login by itself. The sign-in page itself is fine behind the proxy, since it opens in the browser where you can log in to the proxy. These paths are called by the app without a browser and need to get through:
+
+- `/.well-known/oauth-authorization-server`
+- `/oauth/register`
+- `/oauth/token`
+- `/oauth/revoke`
+- `/api/` and everything under it
+
+There are two ways to let them through. Either exempt those paths from the proxy (with Cloudflare Access, a Bypass policy on them), or keep them behind it and give the app a service token. For the second, tap "Behind an access proxy? Add headers" when adding the server and enter the headers the proxy expects; for Cloudflare Access these are `CF-Access-Client-Id` and `CF-Access-Client-Secret` from a service token, with a Service Auth policy on those paths. You can change them later in Settings. The headers are kept in the keystore and only sent to that server, never to the storage host it redirects files to. Disconnecting removes them.
+
+The editor shows images in a web view, which can't send extra headers. On a server that stores files on its own disk instead of S3, images in the editor only appear if `/api/files.get` gets through the proxy without them. The reader isn't affected.
+
+When something other than Outline answers, the app says so and names the host that answered, instead of a general error.
+
 ## Privacy
 
-The app talks to your Outline server and nothing else: no analytics, no crash reporting, no tracking. The only other requests are images that a document itself embeds from another site. Tokens are kept in Android's keystore-backed secure storage. Offline copies live in the app's private storage and are deleted when you disconnect.
+The app talks to your Outline server and nothing else: no analytics, no crash reporting, no tracking. The only other requests are images that a document itself embeds from another site. Tokens are kept in Android's keystore-backed secure storage. Offline copies live in the app's private storage and are deleted when you disconnect or the server ends the app's access.
 
 ## Development
 
@@ -72,7 +90,7 @@ Code layout:
 - `src/components/editor/` the editor: a ProseMirror page in a web view (`rich-editor.tsx`, an Expo DOM component) and the screen around it with the toolbar and autosave (`document-editor.tsx`)
 - `src/components/` other shared components, including the opening animation
 - `src/lib/editor/` the editor's schema, a Markdown writer that matches Outline's, and `save.ts`, which turns an edit into patches for only the changed blocks
-- `src/lib/outline/` the Outline API client and sign-in flow; `markdown.ts` turns comments back into Markdown, `edits.ts` saves checkboxes, titles and new documents, `attachments.ts` uploads photos and videos
+- `src/lib/outline/` the Outline API client and sign-in flow; `server-access.ts` checks server addresses and keeps each server's extra headers, `markdown.ts` turns comments back into Markdown, `edits.ts` saves checkboxes, titles and new documents, `attachments.ts` uploads photos and videos
 - `src/lib/maths.ts` draws TeX maths as SVG with MathJax
 - `src/lib/session.ts` keeps each server's session in the platform keystore
 - `src/lib/stars.tsx` the user's stars, shared by the home screen and the star buttons

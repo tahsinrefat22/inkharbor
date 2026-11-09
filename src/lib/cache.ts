@@ -8,7 +8,9 @@ import { FIRST_ACCOUNT_ID } from "@/lib/session";
 // most recently opened ones plus every starred one). Each account has its
 // own database, deleted when the account is removed and when the app's data
 // is cleared. Edits made without a connection wait here too, until they can
-// be saved (see lib/pending-edits.tsx).
+// be saved (see lib/pending-edits.tsx). When the server ends an account's
+// authorization, its copy is deleted but those edits stay, until the same
+// user signs in again (see lib/session.ts, kept accounts).
 
 const DATABASE_VERSION = 2;
 /** Non-starred documents kept, most recently opened first. */
@@ -47,7 +49,11 @@ function documentsChanged(): void {
 }
 
 function database(): Promise<SQLite.SQLiteDatabase> {
-  const name = databaseName(currentAccount);
+  return databaseOf(currentAccount);
+}
+
+function databaseOf(accountId: string): Promise<SQLite.SQLiteDatabase> {
+  const name = databaseName(accountId);
   let promise = databases.get(name);
   if (!promise) {
     promise = (async () => {
@@ -85,6 +91,48 @@ export async function deleteCacheOf(accountId: string): Promise<void> {
   } catch {
     // Nothing was saved for it.
   }
+}
+
+/**
+ * For an account whose authorization ended: deletes its offline copy but keeps
+ * the edits that weren't saved yet. Returns how many documents have one.
+ */
+export async function clearCopyKeepingEdits(accountId: string): Promise<number> {
+  const db = await databaseOf(accountId);
+  // VACUUM and the checkpoint rewrite the file, so the deleted documents
+  // don't linger in its free pages or in the write-ahead log.
+  await db.execAsync(`
+    DELETE FROM documents;
+    DELETE FROM entries;
+    VACUUM;
+    PRAGMA wal_checkpoint(TRUNCATE);
+  `);
+  documentsChanged();
+  const row = await db.getFirstAsync<{ count: number }>("SELECT COUNT(*) AS count FROM pending_edits");
+  return row?.count ?? 0;
+}
+
+/**
+ * Moves the edits kept for one account into another's copy, then deletes the
+ * first. An edit the second account already has for a document wins.
+ */
+export async function moveKeptEdits(fromAccountId: string, toAccountId: string): Promise<void> {
+  if (fromAccountId === toAccountId) {
+    return;
+  }
+  const from = await databaseOf(fromAccountId);
+  const rows = await from.getAllAsync<PendingEditRow>("SELECT * FROM pending_edits");
+  const to = await databaseOf(toAccountId);
+  for (const row of rows) {
+    await to.runAsync(
+      "INSERT OR IGNORE INTO pending_edits (document_id, base, edited, saved_at) VALUES (?, ?, ?, ?)",
+      row.document_id,
+      row.base,
+      row.edited,
+      row.saved_at,
+    );
+  }
+  await deleteCacheOf(fromAccountId);
 }
 
 async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {

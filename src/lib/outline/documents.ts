@@ -1,5 +1,6 @@
 import { allows, type ApiResponse } from "./api";
 import type { Request, RequestWithPolicies } from "./collections";
+import { headersFor, originOf, sameOrigin, serverHeadersReady } from "./server-access";
 
 /** A node of Outline's ProseMirror document JSON. */
 export interface PMNode {
@@ -96,8 +97,11 @@ export async function getDocument(request: RequestWithPolicies, id: string): Pro
  */
 export function documentIdFromLink(href: string, server: string): string | null {
   let path = href;
-  if (href.startsWith(server)) {
-    path = href.slice(server.length);
+  if (/^https?:\/\//i.test(href)) {
+    if (!sameOrigin(href, server)) {
+      return null;
+    }
+    path = href.replace(/^https?:\/\/[^/?#]+/i, "");
   } else if (!href.startsWith("/")) {
     return null;
   }
@@ -108,27 +112,39 @@ export function documentIdFromLink(href: string, server: string): string | null 
 /**
  * Attachment links (/api/attachments.redirect?id=…) need the bearer token, which
  * a browser can't send. Fetch them with the token and return the signed file
- * URL they redirect to; that one works without auth for a short while.
+ * URL they redirect to; that one works without auth for a few minutes.
+ *
+ * The redirects are followed here, one at a time, so the token and the
+ * server's extra headers only go to the server itself: the first address
+ * elsewhere (a signed storage link) is the answer, without requesting it.
  */
 export async function resolveAttachmentUrl(
   href: string,
   server: string,
   accessToken: string,
 ): Promise<string> {
-  const url = href.startsWith("/") ? `${server}${href}` : href;
-  if (!url.startsWith(server)) {
-    return url;
+  let url = href.startsWith("/") ? `${server}${href}` : href;
+  await serverHeadersReady;
+  for (let hop = 0; hop < 5 && sameOrigin(url, server); hop++) {
+    // HEAD, so files on the server itself aren't downloaded.
+    const res = await fetch(url, {
+      method: "HEAD",
+      redirect: "manual",
+      headers: { ...headersFor(url), Authorization: `Bearer ${accessToken}` },
+    });
+    const location = res.headers.get("location");
+    if (res.status < 300 || res.status >= 400 || !location) {
+      return url;
+    }
+    if (/^https?:\/\//i.test(location)) {
+      url = location;
+    } else if (location.startsWith("/") && !location.startsWith("//")) {
+      url = `${originOf(url)}${location}`;
+    } else {
+      return url;
+    }
   }
-  // HEAD follows the redirects without downloading the file. On S3-backed
-  // servers the final HEAD can be refused (S3 signs links per method), but the
-  // URL it reached is still the signed GET link we want.
-  const res = await fetch(url, {
-    method: "HEAD",
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  // The URL reached, not `redirected`: Expo's fetch on Android reports that
-  // as false once the redirects have been followed.
-  return res.url || url;
+  return url;
 }
 
 export interface SearchResult {

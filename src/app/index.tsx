@@ -2,6 +2,7 @@ import * as LocalAuthentication from "expo-local-authentication";
 import { router, Stack } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 
 import { AccountMenu } from "@/components/account-menu";
 import { Button } from "@/components/button";
@@ -35,7 +36,12 @@ export default function Index() {
 function Setup({ colors }: { colors: Colors }) {
   const { lastServer, message, sessions, cancelSetup } = useAuth();
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <KeyboardAwareScrollView
+      style={{ backgroundColor: colors.background }}
+      contentContainerStyle={styles.setup}
+      keyboardShouldPersistTaps="handled"
+      bottomOffset={24}
+    >
       <Text style={[styles.title, { color: colors.text }]}>Connect to Outline</Text>
       <Text style={{ color: colors.muted }}>
         {"Enter your Outline server's address. You'll confirm access once in the browser."}
@@ -47,7 +53,7 @@ function Setup({ colors }: { colors: Colors }) {
           onPress={cancelSetup}
         />
       ) : null}
-    </View>
+    </KeyboardAwareScrollView>
   );
 }
 
@@ -116,6 +122,12 @@ function Home({ colors }: { colors: Colors }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    justifyContent: "center",
+    padding: 24,
+    gap: 12,
+  },
+  setup: {
+    flexGrow: 1,
     justifyContent: "center",
     padding: 24,
     gap: 12,

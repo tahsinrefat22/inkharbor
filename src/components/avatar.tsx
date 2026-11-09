@@ -1,6 +1,8 @@
 import { Image } from "expo-image";
 import { StyleSheet, Text, View } from "react-native";
 
+import { useServerSource } from "@/hooks/use-server-source";
+
 interface AvatarProps {
   name: string;
   avatarUrl?: string | null;
@@ -14,14 +16,11 @@ interface AvatarProps {
 /** The user's profile photo, or their initial on their Outline colour. */
 export function Avatar({ name, avatarUrl, color, size, server, accessToken }: AvatarProps) {
   const round = { width: size, height: size, borderRadius: size / 2 };
+  // Photos uploaded to Outline need the bearer token; photos from Google and
+  // similar are public URLs and get no headers.
+  const source = useServerSource(avatarUrl ?? "", server ?? "", accessToken ?? "");
   if (avatarUrl) {
-    // Photos uploaded to Outline are relative and need the bearer token;
-    // photos from Google and similar are public URLs.
-    const relative = avatarUrl.startsWith("/");
-    const uri = relative && server ? `${server}${avatarUrl}` : avatarUrl;
-    const headers: Record<string, string> | undefined =
-      relative && accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined;
-    return <Image source={{ uri, headers }} style={round} accessibilityLabel={name} />;
+    return <Image source={server ? source : { uri: avatarUrl }} style={round} accessibilityLabel={name} />;
   }
   return (
     <View style={[styles.fallback, round, { backgroundColor: color || "#6b7280" }]}>

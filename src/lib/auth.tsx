@@ -1,13 +1,24 @@
 import * as LocalAuthentication from "expo-local-authentication";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { deleteCacheOf, switchCacheTo } from "@/lib/cache";
-import { apiCall, getAuthInfo, OutlineApiError, type ApiResponse } from "@/lib/outline/api";
+import { clearCopyKeepingEdits, deleteCacheOf, moveKeptEdits, switchCacheTo } from "@/lib/cache";
+import { apiCall, getAuthInfo, isNetworkError, OutlineApiError, type ApiResponse } from "@/lib/outline/api";
 import { revokeTokens, signIn, SignInError } from "@/lib/outline/oauth";
+import {
+  parseServerAddress,
+  pruneServerHeaders,
+  sameOrigin,
+  savedHeaders,
+  serverHeadersReady,
+  setServerHeaders,
+  type HeaderList,
+} from "@/lib/outline/server-access";
 import {
   getAccessToken,
   getLastServer,
   isLocked,
+  keepAccount,
+  keptServers,
   loadSessions,
   newAccountId,
   removeSession,
@@ -15,6 +26,8 @@ import {
   setActiveAccount,
   setLastServer,
   setLocked,
+  takeExpiredKeptAccounts,
+  takeKeptAccounts,
   type Session,
 } from "@/lib/session";
 
@@ -51,8 +64,11 @@ interface AuthContextValue extends AuthState {
   request: <T>(method: string, body?: object, headers?: Record<string, string>) => Promise<T>;
   /** Like request, with the user's policies for what came back. */
   requestWithPolicies: <T>(method: string, body?: object, headers?: Record<string, string>) => Promise<ApiResponse<T>>;
-  /** Adds a server (or signs in to one again) and opens it. */
-  connect: (server: string) => Promise<ConnectResult>;
+  /**
+   * Adds a server (or signs in to one again) and opens it. `headers`, when
+   * given, replace the extra headers saved for the server.
+   */
+  connect: (server: string, headers?: HeaderList) => Promise<ConnectResult>;
   switchAccount: (id: string) => Promise<void>;
   /** From the setup screen, back to a saved account. */
   cancelSetup: () => Promise<void>;
@@ -64,12 +80,23 @@ interface AuthContextValue extends AuthState {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/** A request made for an account that's no longer open, or with none open. */
+export class AccountChangedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AccountChangedError";
+  }
+}
+
 const EXPIRED_MESSAGE =
   "Your authorization ended, so the server needs to confirm it's you again.";
 
 function describeError(err: unknown): string {
   if (err instanceof SignInError || err instanceof OutlineApiError) {
     return err.message;
+  }
+  if (isNetworkError(err)) {
+    return "Couldn't reach the server. Check the address and your connection.";
   }
   return "Something went wrong. Check the server address and your connection.";
 }
@@ -169,17 +196,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /**
    * Forgets an account: its authorization and its offline copy (the server
    * address and the app's registration with it are kept). With a message,
-   * the server asked for a new sign-in, so the setup screen offers it.
+   * the server ended the authorization and the setup screen offers a new
+   * sign-in; edits that weren't saved yet are then kept for the same user.
    */
   const removeAccount = useCallback(
     async (session: Session, message: string | null) => {
       await removeSession(session.id);
-      await deleteCacheOf(session.id);
+      let note = message;
+      const userId = session.account.userId;
+      if (message && userId) {
+        // Kept even with no edits waiting: the editor may still be saving one.
+        await keepAccount(session.id, session.server, userId);
+        let count = 0;
+        try {
+          count = await clearCopyKeepingEdits(session.id);
+        } catch {
+          // The documents must go either way, so the edits go with them.
+          await deleteCacheOf(session.id);
+        }
+        if (count) {
+          note = `${message} Your changes to ${count === 1 ? "1 document" : `${count} documents`} weren't saved yet. They're kept on this phone and saved once you sign in again.`;
+        }
+      } else {
+        await deleteCacheOf(session.id);
+      }
       const remaining = sessionsRef.current.filter((s) => s.id !== session.id);
       sessionsRef.current = remaining;
       setState((s) => ({ ...s, sessions: s.sessions.filter((other) => other.id !== session.id) }));
-      if (message || !remaining.length) {
-        await toSetup(message, session.server);
+      if (note || !remaining.length) {
+        await toSetup(note, session.server);
         return;
       }
       await setActiveAccount(remaining[0].id);
@@ -228,13 +273,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async <T,>(method: string, body: object = {}, headers: Record<string, string> = {}): Promise<ApiResponse<T>> => {
       const session = sessionRef.current;
       if (!session) {
-        throw new Error("Not signed in");
+        throw new AccountChangedError("Not signed in");
       }
       // An answer meant for an account that's no longer open is dropped, so
       // it can't be shown or saved as the new account's.
       const stillOpen = () => {
         if (sessionRef.current?.id !== session.id) {
-          throw new Error("Switched to another account");
+          throw new AccountChangedError("Switched to another account");
         }
       };
       try {
@@ -272,7 +317,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     (async () => {
+      // Image sources look the extra headers up while rendering, so load them first.
+      await serverHeadersReady;
       const { sessions, activeId } = await loadSessions();
+      // Edits nobody signed in again for are deleted, and headers kept for
+      // no account (e.g. from a sign-in that never finished) with them.
+      try {
+        for (const id of await takeExpiredKeptAccounts()) {
+          await deleteCacheOf(id);
+        }
+        await pruneServerHeaders([...sessions.map((s) => s.server), ...(await keptServers())]);
+      } catch {
+        // Tried again on the next start.
+      }
       sessionsRef.current = sessions;
       setState((s) => ({ ...s, sessions }));
       const session = sessions.find((s) => s.id === activeId);
@@ -303,8 +360,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [toSetup, withAccount, show, removeAccount]);
 
   const connect = useCallback(
-    async (server: string): Promise<ConnectResult> => {
+    async (server: string, headers?: HeaderList): Promise<ConnectResult> => {
+      // New headers are used for this sign-in and only stay if it succeeds.
+      const address = parseServerAddress(server);
+      const target = headers && "server" in address ? address.server : null;
+      const previous = target ? savedHeaders(target) : [];
+      let connected = false;
       try {
+        if (target && headers) {
+          await setServerHeaders(target, headers);
+        }
         const result = await signIn(server);
         if (!result) {
           return { connected: false };
@@ -316,17 +381,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const existing = sessionsRef.current.find(
           (s) => s.server === session.server && s.account.userId === session.account.userId,
         );
+        // Edits kept since the server last signed this user out go back to them,
+        // matched by the user the server just confirmed.
+        const kept = await takeKeptAccounts(session.server, session.account.userId);
         if (existing) {
           session = { ...session, id: existing.id };
           await revokeTokens(existing.server, existing.refreshToken);
+        } else if (kept.length) {
+          session = { ...session, id: kept[0] };
+        }
+        for (const id of kept) {
+          await moveKeptEdits(id, session.id).catch(() => {
+            // Its database couldn't be read; nothing to hand back.
+          });
         }
         await saveSession(session);
         await setActiveAccount(session.id);
         await setLocked(false);
         show(session, false);
+        connected = true;
         return { connected: true };
       } catch (err) {
         return { connected: false, error: describeError(err) };
+      } finally {
+        if (target && !connected) {
+          await setServerHeaders(target, previous).catch(() => {
+            // Removed at the next start if no account uses them.
+          });
+        }
       }
     },
     [withAccount, show],
@@ -387,6 +469,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     await revokeTokens(session.server, session.refreshToken);
+    // The server's extra headers are a way in too, unless another account still uses them.
+    if (!sessionsRef.current.some((other) => other.id !== session.id && sameOrigin(other.server, session.server))) {
+      await setServerHeaders(session.server, []);
+    }
     await removeAccount(session, null);
   }, [removeAccount]);
 

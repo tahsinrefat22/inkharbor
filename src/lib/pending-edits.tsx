@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { AppState } from "react-native";
 
-import { useAuth } from "@/lib/auth";
+import { AccountChangedError, useAuth } from "@/lib/auth";
 import { deletePendingEdit, pendingEdits, writeDocument } from "@/lib/cache";
 import { saveDocument } from "@/lib/editor/save";
 import { isNetworkError, OutlineApiError } from "@/lib/outline/api";
@@ -11,7 +11,9 @@ import { isNetworkError, OutlineApiError } from "@/lib/outline/api";
 // back to the front, and every so often while any are waiting. Each is tried
 // once; if Outline turns it down (it clashes with changes made elsewhere,
 // or can't be saved from the app) it's dropped without a word, as Outline's
-// copy wins. A document open in the editor is left to the editor, which
+// copy wins. Anything short of Outline itself answering keeps it: no
+// connection, a server error, a proxy in the way, or an authorization that
+// ended (lib/auth.tsx keeps the edits until the user signs in again). A document open in the editor is left to the editor, which
 // saves it the same way.
 
 const RETRY_MS = 30_000;
@@ -26,9 +28,12 @@ export function markOpenInEditor(documentId: string): () => void {
   };
 }
 
-/** Not reaching the server, as opposed to the server refusing. */
+/** Not getting an answer from Outline about the edit, as opposed to Outline refusing it. */
 export function isUnreachable(err: unknown): boolean {
-  return isNetworkError(err) || (err instanceof OutlineApiError && err.isServerError);
+  return (
+    isNetworkError(err) ||
+    (err instanceof OutlineApiError && (err.isServerError || err.notOutline || err.isUnauthorized))
+  );
 }
 
 /** Saves waiting edits for the open account; renders nothing. */
@@ -60,8 +65,8 @@ export function PendingEditsSync() {
             await writeDocument(result.document, { opened: true });
             await deletePendingEdit(edit.documentId);
           } catch (err) {
-            if (isUnreachable(err)) {
-              // Still offline; everything waits for the next try.
+            if (isUnreachable(err) || err instanceof AccountChangedError) {
+              // Still offline, or no longer this account's turn; everything waits.
               return;
             }
             await deletePendingEdit(edit.documentId);

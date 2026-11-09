@@ -2,6 +2,7 @@ import { File } from "expo-file-system";
 import { fetch } from "expo/fetch";
 
 import type { RequestWithPolicies } from "./collections";
+import { headersFor, serverHeadersReady } from "./server-access";
 
 /** A file on the phone, e.g. from the photo picker. */
 export interface LocalFile {
@@ -53,7 +54,9 @@ export async function uploadAttachment(
     }
     form.append("file", contents as unknown as Blob, file.name);
     const url = (data.uploadUrl ?? "").startsWith("/") ? `${server}${data.uploadUrl}` : (data.uploadUrl ?? "");
-    response = await fetch(url, { method: "POST", body: form });
+    // The server's extra headers go along only when the upload is to the server itself.
+    await serverHeadersReady;
+    response = await fetch(url, { method: "POST", redirect: "manual", headers: headersFor(url), body: form });
   }
   if (!response.ok) {
     throw new Error(`The upload was refused (HTTP ${response.status}).`);

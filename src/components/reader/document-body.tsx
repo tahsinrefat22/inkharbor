@@ -31,6 +31,7 @@ import {
 import { SvgXml } from "react-native-svg";
 
 import { useScrollThumb } from "@/components/reader/scroll-thumb";
+import { useServerSource } from "@/hooks/use-server-source";
 import type { Colors } from "@/constants/colors";
 import emojiNames from "@/lib/emoji-names.json";
 import { renderMaths } from "@/lib/maths";
@@ -614,12 +615,10 @@ function InlineNode({ node }: { node: PMNode }) {
 function CustomEmoji({ id }: { id: string }) {
   const { server, scale } = useReader();
   const accessToken = useImageToken();
+  const source = useServerSource(`/api/emojis.redirect?id=${id}`, server, accessToken);
   return (
     <Image
-      source={{
-        uri: `${server}/api/emojis.redirect?id=${id}`,
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }}
+      source={source}
       style={{ width: 20 * scale, height: 20 * scale }}
       contentFit="contain"
       accessibilityLabel="Emoji"
@@ -904,17 +903,15 @@ function ReaderImage({ node }: { node: PMNode }) {
   const width = numberAttr(node, "width");
   const height = numberAttr(node, "height");
   const [ratio, setRatio] = useState(width && height ? width / height : undefined);
+  // Uploaded images need the bearer token (expo-image, since React Native's
+  // Image drops headers on Android); external images don't.
+  const source = useServerSource(src ?? "", server, accessToken);
   if (!src) {
     return null;
   }
-  // Uploaded images are relative and need the bearer token (expo-image, since
-  // React Native's Image drops headers on Android); external images don't.
-  const relative = src.startsWith("/");
-  const uri = relative ? `${server}${src}` : src;
-  const ownServer = uri.startsWith(server);
   return (
     <Image
-      source={{ uri, headers: ownServer ? { Authorization: `Bearer ${accessToken}` } : undefined }}
+      source={source}
       style={[styles.image, { aspectRatio: ratio ?? 4 / 3, backgroundColor: colors.border }]}
       contentFit="contain"
       accessibilityLabel={stringAttr(node, "alt") ?? stringAttr(node, "title")}
@@ -938,7 +935,7 @@ const TALLEST_VIDEO_RATIO = 3 / 4;
  * the player drops the token when that link is on another host, e.g. S3.
  */
 function ReaderVideo({ node }: { node: PMNode }) {
-  const { server, colors, scale } = useReader();
+  const { colors, scale } = useReader();
   const [started, setStarted] = useState(false);
   // Bumped by "Try again", which starts a new player with a fresh token.
   const [attempt, setAttempt] = useState(0);
@@ -950,16 +947,13 @@ function ReaderVideo({ node }: { node: PMNode }) {
     return null;
   }
   const ratio = Math.max(width && height ? width / height : 16 / 9, TALLEST_VIDEO_RATIO);
-  const uri = src.startsWith("/") ? `${server}${src}` : src;
   return (
     <View style={styles.video}>
       <View style={[styles.videoFrame, { aspectRatio: ratio }]}>
         {started ? (
           <VideoPlayback
             key={attempt}
-            uri={uri}
             href={src}
-            ownServer={uri.startsWith(server)}
             title={title}
             onRetry={() => setAttempt((value) => value + 1)}
           />
@@ -984,28 +978,23 @@ function ReaderVideo({ node }: { node: PMNode }) {
 }
 
 function VideoPlayback({
-  uri,
   href,
-  ownServer,
   title,
   onRetry,
 }: {
-  uri: string;
-  /** The link as the document has it, for opening in the browser. */
+  /** The link as the document has it. */
   href: string;
-  ownServer: boolean;
   title?: string;
   onRetry: () => void;
 }) {
-  const { openLink } = useReader();
+  const { server, openLink } = useReader();
   const accessToken = useImageToken();
-  const source = useMemo<VideoSource>(
-    () => ({
-      uri,
-      headers: ownServer ? { Authorization: `Bearer ${accessToken}` } : undefined,
-      metadata: title ? { title } : undefined,
-    }),
-    [uri, ownServer, accessToken, title],
+  // On a server with extra headers this is a signed link that lasts a few
+  // minutes; "Try again" gets a new one if a long video outlives it.
+  const served = useServerSource(href, server, accessToken);
+  const source = useMemo<VideoSource | null>(
+    () => (served ? { ...served, metadata: title ? { title } : undefined } : null),
+    [served, title],
   );
   const player = useVideoPlayer(source, (created) => created.play());
   const { status } = useEvent(player, "statusChange", { status: player.status });
